@@ -248,16 +248,6 @@ const GAMES: &[Game] = &[
         play_cmd: &["python", "-m", "pyxel", "play"],
     },
     Game {
-        name: "ASCII Arena", icon: "A", bin: "asciiarena", package: "asciiarena",
-        desc: "Multiplayer terminal deathmatch. Pick an ASCII character and fight in an arena using arcade-style skills. Last one standing wins. Supports networked multiplayer.",
-        keys: "WASD move, Space attack, 1-4 skills",
-        category: "Action", runtime: "cargo",
-        engine: "ratatui", repo: "https://crates.io/crates/asciiarena",
-        install_cmd: &["cargo", "install", "asciiarena"],
-        uninstall_cmd: &["cargo", "uninstall", "asciiarena"],
-        play_cmd: &[],
-    },
-    Game {
         name: "Blademaster", icon: "B", bin: "blademaster", package: "blademaster",
         desc: "Roguelike dungeon crawler. Explore procedurally generated levels, fight monsters in turn-based combat, collect loot, and level up. Permadeath — every run is different.",
         keys: "WASD/Arrows move, bump to attack, i inventory",
