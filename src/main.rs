@@ -1095,19 +1095,23 @@ fn ui(f: &mut Frame, app: &mut App) {
             "  ── TECHNICAL ──",
             Style::default().fg(Color::Rgb(100, 100, 160)).add_modifier(Modifier::BOLD),
         )),
-        detail_row("  Bin:     ", game.bin, Color::Green),
         detail_row("  Engine:  ", game.engine, Color::Rgb(200, 160, 100)),
-        detail_row("  Crate:   ", game.package, Color::Rgb(180, 140, 220)),
-        detail_row("  Source:  ", game.repo, Color::Rgb(100, 160, 220)),
-        Line::from(vec![
-            Span::styled("  Runtime: ", Style::default().fg(Color::Rgb(100, 100, 130))),
-            Span::styled(game.runtime, Style::default().fg(if runtime_available { Color::Green } else { Color::Red })),
-            Span::styled(
-                if runtime_available { " (found)" } else { " (missing!)" },
-                Style::default().fg(if runtime_available { Color::DarkGray } else { Color::Red }),
-            ),
-        ]),
     ];
+    if game.runtime == "cargo" {
+        details.push(detail_row("  Bin:     ", game.bin, Color::Green));
+        details.push(detail_row("  Crate:   ", game.package, Color::Rgb(180, 140, 220)));
+    } else {
+        details.push(detail_row("  Package: ", game.package, Color::Rgb(180, 140, 220)));
+    }
+    details.push(detail_row("  Source:  ", game.repo, Color::Rgb(100, 160, 220)));
+    details.push(Line::from(vec![
+        Span::styled("  Runtime: ", Style::default().fg(Color::Rgb(100, 100, 130))),
+        Span::styled(game.runtime, Style::default().fg(if runtime_available { Color::Green } else { Color::Red })),
+        Span::styled(
+            if runtime_available { " (found)" } else { " (missing!)" },
+            Style::default().fg(if runtime_available { Color::DarkGray } else { Color::Red }),
+        ),
+    ]));
     let install_cmd = game.install_cmd.join(" ");
     details.push(detail_row("  Install: ", &install_cmd, Color::Rgb(150, 150, 170)));
     let size_str = if installed {
