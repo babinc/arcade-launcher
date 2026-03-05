@@ -38,13 +38,13 @@ A terminal game launcher built with Rust. Browse, install, and play terminal and
 ## Install
 
 ```sh
-cargo install --git https://github.com/carman/arcade-launcher
+cargo install --git https://github.com/babinc/arcade-launcher
 ```
 
 Or clone and build:
 
 ```sh
-git clone https://github.com/carman/arcade-launcher.git
+git clone https://github.com/babinc/arcade-launcher.git
 cd arcade-launcher
 cargo run
 ```
