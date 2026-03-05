@@ -248,13 +248,23 @@ const GAMES: &[Game] = &[
         play_cmd: &["python", "-m", "pyxel", "play"],
     },
     Game {
-        name: "Blademaster", icon: "B", bin: "blademaster", package: "blademaster",
-        desc: "Roguelike dungeon crawler. Explore procedurally generated levels, fight monsters in turn-based combat, collect loot, and level up. Permadeath — every run is different.",
-        keys: "WASD/Arrows move, bump to attack, i inventory",
-        category: "RPG", runtime: "cargo",
-        engine: "crossterm", repo: "https://crates.io/crates/blademaster",
-        install_cmd: &["cargo", "install", "blademaster"],
-        uninstall_cmd: &["cargo", "uninstall", "blademaster"],
+        name: "Space Invaders", icon: "V", bin: "space_invaders", package: "raylib-games",
+        desc: "Classic Space Invaders in a graphical window. Shoot descending waves of aliens before they reach the bottom. Built with raylib — pure C, zero dependencies.",
+        keys: "Left/Right move, Space shoot",
+        category: "Action", runtime: "cmake",
+        engine: "raylib", repo: "https://github.com/raysan5/raylib-games",
+        install_cmd: &["cmake-game", "space_invaders", "classics/src/space_invaders.c"],
+        uninstall_cmd: &["cmake-game-remove", "space_invaders"],
+        play_cmd: &[],
+    },
+    Game {
+        name: "Asteroids", icon: "A", bin: "asteroids", package: "raylib-games",
+        desc: "Classic Asteroids in a graphical window. Pilot a ship, rotate and thrust to dodge, shoot to break asteroids into smaller pieces. Built with raylib — pure C.",
+        keys: "Left/Right rotate, Up thrust, Space shoot",
+        category: "Action", runtime: "cmake",
+        engine: "raylib", repo: "https://github.com/raysan5/raylib-games",
+        install_cmd: &["cmake-game", "asteroids", "classics/src/asteroids.c"],
+        uninstall_cmd: &["cmake-game-remove", "asteroids"],
         play_cmd: &[],
     },
     Game {
@@ -268,13 +278,13 @@ const GAMES: &[Game] = &[
         play_cmd: &[],
     },
     Game {
-        name: "Rebels", icon: "R", bin: "rebels", package: "rebels",
-        desc: "Space pirate basketball. Manage an anarchic crew of spacepirates, travel the galaxy, and compete in basketball-combat matches. Build your team and dominate the league.",
-        keys: "Arrow keys navigate, Enter select, Tab switch view",
-        category: "Strategy", runtime: "cargo",
-        engine: "ratatui", repo: "https://crates.io/crates/rebels",
-        install_cmd: &["cargo", "install", "rebels"],
-        uninstall_cmd: &["cargo", "uninstall", "rebels"],
+        name: "Taurus", icon: "T", bin: "taurus", package: "taurus",
+        desc: "Classic roguelike. Explore a dungeon, fight monsters in turn-based combat, find items and gear. Permadeath — when you die, you start over. Uses libtcod rendering.",
+        keys: "Arrow keys move, bump to attack, < > stairs",
+        category: "RPG", runtime: "cargo",
+        engine: "libtcod", repo: "https://crates.io/crates/taurus",
+        install_cmd: &["cargo", "install", "taurus"],
+        uninstall_cmd: &["cargo", "uninstall", "taurus"],
         play_cmd: &[],
     },
 ];
@@ -397,6 +407,7 @@ struct Toolchains {
     cargo: bool,
     java: bool,
     python: bool,
+    cmake: bool,
 }
 
 impl Toolchains {
@@ -405,6 +416,7 @@ impl Toolchains {
             cargo: which("cargo"),
             java: which("java"),
             python: which("python") || which("python3"),
+            cmake: which("cmake") && which("git") && (which("cl") || which("gcc") || which("cc") || which("clang")),
         }
     }
 }
@@ -437,6 +449,8 @@ fn compute_installed() -> Vec<bool> {
     GAMES.iter().map(|g| {
         if g.runtime == "python" && !g.play_cmd.is_empty() {
             pyxel_ok
+        } else if g.runtime == "cmake" {
+            cmake_game_exe(g).is_file()
         } else {
             which(g.bin)
         }
@@ -511,6 +525,7 @@ fn has_runtime(toolchains: &Toolchains, game: &Game) -> bool {
         "cargo" => toolchains.cargo,
         "python" | "pip" => toolchains.python,
         "java" => toolchains.java,
+        "cmake" => toolchains.cmake,
         _ => true,
     }
 }
@@ -520,8 +535,26 @@ fn runtime_install_hint(game: &Game) -> &'static str {
         "cargo" => "Install Rust: https://rustup.rs",
         "python" | "pip" => "Install Python: https://python.org/downloads",
         "java" => "Install Java: https://adoptium.net",
+        "cmake" => "Need: cmake (cmake.org), git (git-scm.com), C compiler (gcc/MSVC)",
         _ => "Unknown runtime",
     }
+}
+
+fn games_dir() -> PathBuf {
+    let mut p = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
+    p.push("arcade-launcher");
+    p.push("games");
+    let _ = std::fs::create_dir_all(&p);
+    p
+}
+
+fn cmake_game_exe(game: &Game) -> PathBuf {
+    let mut p = games_dir();
+    p.push(game.bin);
+    p.push("build");
+    p.push("Release");
+    p.push(format!("{}.exe", game.bin));
+    p
 }
 
 fn bin_path(bin: &str) -> Option<PathBuf> {
@@ -541,6 +574,15 @@ fn bin_path(bin: &str) -> Option<PathBuf> {
 fn install_size(game: &Game) -> Option<u64> {
     // Python module games: size isn't meaningful via bin_path
     if game.runtime == "python" && !game.play_cmd.is_empty() {
+        return None;
+    }
+    // cmake games: measure the whole build directory
+    if game.runtime == "cmake" {
+        let mut dir = games_dir();
+        dir.push(game.bin);
+        if dir.is_dir() {
+            return Some(dir_size_recursive(&dir));
+        }
         return None;
     }
     // Check for a game directory next to the binary first (non-cargo games with assets)
@@ -584,6 +626,199 @@ fn format_size(bytes: u64) -> String {
         format!("{:.0} KB", bytes as f64 / 1024.0)
     } else {
         format!("{} B", bytes)
+    }
+}
+
+const CMAKE_TEMPLATE: &str = "\
+cmake_minimum_required(VERSION 3.14)\n\
+project({name} C)\n\
+include(FetchContent)\n\
+FetchContent_Declare(raylib GIT_REPOSITORY https://github.com/raysan5/raylib.git GIT_TAG 5.5 GIT_SHALLOW TRUE)\n\
+FetchContent_MakeAvailable(raylib)\n\
+add_executable({name} {name}.c)\n\
+target_link_libraries({name} raylib)\n\
+if(WIN32)\n\
+  target_link_libraries({name} winmm)\n\
+endif()\n";
+
+fn run_step(
+    cmd: &str,
+    args: &[&str],
+    cwd: &std::path::Path,
+    lines: &Arc<Mutex<Vec<String>>>,
+) -> bool {
+    lines.lock().unwrap().push(format!("$ {} {}", cmd, args.join(" ")));
+    let result = Command::new(cmd)
+        .args(args)
+        .current_dir(cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    match result {
+        Ok(mut child) => {
+            let stderr = child.stderr.take();
+            let stdout = child.stdout.take();
+            let l2 = Arc::clone(lines);
+            let t1 = thread::spawn(move || {
+                if let Some(s) = stderr {
+                    for line in BufReader::new(s).lines().flatten() {
+                        l2.lock().unwrap().push(line);
+                    }
+                }
+            });
+            let l3 = Arc::clone(lines);
+            let t2 = thread::spawn(move || {
+                if let Some(s) = stdout {
+                    for line in BufReader::new(s).lines().flatten() {
+                        l3.lock().unwrap().push(line);
+                    }
+                }
+            });
+            let _ = t1.join();
+            let _ = t2.join();
+            child.wait().map(|s| s.success()).unwrap_or(false)
+        }
+        Err(e) => {
+            lines.lock().unwrap().push(format!("Error: {}", e));
+            false
+        }
+    }
+}
+
+fn ensure_raylib_games_repo(lines: &Arc<Mutex<Vec<String>>>) -> Option<PathBuf> {
+    let repo_dir = games_dir().join("raylib-games");
+    if repo_dir.join(".git").is_dir() {
+        lines.lock().unwrap().push("Source repo already cloned.".to_string());
+        return Some(repo_dir);
+    }
+    lines.lock().unwrap().push("Cloning raylib-games repo (shallow)...".to_string());
+    let parent = games_dir();
+    if run_step("git", &["clone", "--depth", "1", "https://github.com/raysan5/raylib-games.git"], &parent, lines) {
+        Some(repo_dir)
+    } else {
+        None
+    }
+}
+
+fn run_cmake_install(
+    cmd_parts: &[String],
+    lines: &Arc<Mutex<Vec<String>>>,
+    done: &Arc<Mutex<Option<bool>>>,
+) {
+    // cmd_parts: ["cmake-game", "game_name", "repo_relative_path"]
+    let name = &cmd_parts[1];
+    let src_rel = &cmd_parts[2]; // e.g. "classics/src/space_invaders.c"
+
+    let mut game_dir = games_dir();
+    game_dir.push(name);
+    let _ = std::fs::create_dir_all(&game_dir);
+
+    // Clone the shared repo if needed
+    let repo_dir = match ensure_raylib_games_repo(lines) {
+        Some(d) => d,
+        None => {
+            lines.lock().unwrap().push("Failed to clone source repo!".to_string());
+            *done.lock().unwrap() = Some(false);
+            return;
+        }
+    };
+
+    // Copy source file from repo
+    let src_file = repo_dir.join(src_rel);
+    let dest_file = game_dir.join(format!("{}.c", name));
+    lines.lock().unwrap().push(format!("Copying {} ...", src_rel));
+    if let Err(e) = std::fs::copy(&src_file, &dest_file) {
+        lines.lock().unwrap().push(format!("Failed to copy source: {}", e));
+        *done.lock().unwrap() = Some(false);
+        return;
+    }
+
+    // Write CMakeLists.txt
+    let cmake_content = CMAKE_TEMPLATE.replace("{name}", name);
+    let cmake_path = game_dir.join("CMakeLists.txt");
+    if std::fs::write(&cmake_path, &cmake_content).is_err() {
+        lines.lock().unwrap().push("Failed to write CMakeLists.txt".to_string());
+        *done.lock().unwrap() = Some(false);
+        return;
+    }
+    lines.lock().unwrap().push("Wrote CMakeLists.txt".to_string());
+
+    // cmake configure
+    lines.lock().unwrap().push(String::new());
+    lines.lock().unwrap().push("Configuring cmake (fetching raylib)...".to_string());
+    if !run_step("cmake", &["-B", "build", "-DCMAKE_BUILD_TYPE=Release"], &game_dir, lines) {
+        lines.lock().unwrap().push("cmake configure failed!".to_string());
+        *done.lock().unwrap() = Some(false);
+        return;
+    }
+
+    // cmake build
+    lines.lock().unwrap().push(String::new());
+    lines.lock().unwrap().push("Building...".to_string());
+    let ok = run_step("cmake", &["--build", "build", "--config", "Release"], &game_dir, lines);
+    *done.lock().unwrap() = Some(ok);
+}
+
+fn run_cmake_remove(
+    cmd_parts: &[String],
+    lines: &Arc<Mutex<Vec<String>>>,
+    done: &Arc<Mutex<Option<bool>>>,
+) {
+    let name = &cmd_parts[1];
+    let mut game_dir = games_dir();
+    game_dir.push(name);
+    lines.lock().unwrap().push(format!("Removing {} ...", game_dir.display()));
+    match std::fs::remove_dir_all(&game_dir) {
+        Ok(_) => {
+            lines.lock().unwrap().push("Removed!".to_string());
+            *done.lock().unwrap() = Some(true);
+        }
+        Err(e) => {
+            lines.lock().unwrap().push(format!("Error: {}", e));
+            *done.lock().unwrap() = Some(false);
+        }
+    }
+}
+
+fn run_shell_install(
+    cmd_parts: &[String],
+    lines: &Arc<Mutex<Vec<String>>>,
+    done: &Arc<Mutex<Option<bool>>>,
+) {
+    let result = Command::new(&cmd_parts[0])
+        .args(&cmd_parts[1..])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    match result {
+        Ok(mut child) => {
+            let stderr = child.stderr.take();
+            let stdout = child.stdout.take();
+            let l2 = Arc::clone(lines);
+            let t1 = thread::spawn(move || {
+                if let Some(s) = stderr {
+                    for line in BufReader::new(s).lines().flatten() {
+                        l2.lock().unwrap().push(line);
+                    }
+                }
+            });
+            let l3 = Arc::clone(lines);
+            let t2 = thread::spawn(move || {
+                if let Some(s) = stdout {
+                    for line in BufReader::new(s).lines().flatten() {
+                        l3.lock().unwrap().push(line);
+                    }
+                }
+            });
+            let _ = t1.join();
+            let _ = t2.join();
+            let ok = child.wait().map(|s| s.success()).unwrap_or(false);
+            *done.lock().unwrap() = Some(ok);
+        }
+        Err(e) => {
+            lines.lock().unwrap().push(format!("Error: {}", e));
+            *done.lock().unwrap() = Some(false);
+        }
     }
 }
 
@@ -763,7 +998,12 @@ fn main() -> io::Result<()> {
                                 ));
                             } else {
                                 let game = &GAMES[idx];
-                                if !game.play_cmd.is_empty() {
+                                if game.runtime == "cmake" {
+                                    let exe = cmake_game_exe(game);
+                                    let exe_str = exe.to_string_lossy().to_string();
+                                    let (t, _ok) = run_visible(terminal, &exe_str, &[])?;
+                                    terminal = t;
+                                } else if !game.play_cmd.is_empty() {
                                     // Custom play command (e.g. pyxel games)
                                     let script = pyxel_script_path(game);
                                     let cmd = game.play_cmd[0];
@@ -842,42 +1082,12 @@ fn main() -> io::Result<()> {
                                         };
                                     }
 
-                                    let result = Command::new(&cmd_parts[0])
-                                        .args(&cmd_parts[1..])
-                                        .stdout(Stdio::piped())
-                                        .stderr(Stdio::piped())
-                                        .spawn();
-
-                                    match result {
-                                        Ok(mut child) => {
-                                            // Read stderr (cargo writes progress there)
-                                            let stderr = child.stderr.take();
-                                            let stdout = child.stdout.take();
-                                            let lines2 = Arc::clone(&lines_clone);
-                                            let stderr_thread = thread::spawn(move || {
-                                                if let Some(stderr) = stderr {
-                                                    for line in BufReader::new(stderr).lines().flatten() {
-                                                        lines2.lock().unwrap().push(line);
-                                                    }
-                                                }
-                                            });
-                                            let lines3 = Arc::clone(&lines_clone);
-                                            let stdout_thread = thread::spawn(move || {
-                                                if let Some(stdout) = stdout {
-                                                    for line in BufReader::new(stdout).lines().flatten() {
-                                                        lines3.lock().unwrap().push(line);
-                                                    }
-                                                }
-                                            });
-                                            let _ = stderr_thread.join();
-                                            let _ = stdout_thread.join();
-                                            let ok = child.wait().map(|s| s.success()).unwrap_or(false);
-                                            *done_clone.lock().unwrap() = Some(ok);
-                                        }
-                                        Err(e) => {
-                                            lines_clone.lock().unwrap().push(format!("Error: {}", e));
-                                            *done_clone.lock().unwrap() = Some(false);
-                                        }
+                                    if cmd_parts[0] == "cmake-game" {
+                                        run_cmake_install(&cmd_parts, &lines_clone, &done_clone);
+                                    } else if cmd_parts[0] == "cmake-game-remove" {
+                                        run_cmake_remove(&cmd_parts, &lines_clone, &done_clone);
+                                    } else {
+                                        run_shell_install(&cmd_parts, &lines_clone, &done_clone);
                                     }
                                 });
 
@@ -1111,6 +1321,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         "cargo" => app.toolchains.cargo,
         "java" => app.toolchains.java,
         "python" => app.toolchains.python,
+        "cmake" => app.toolchains.cmake,
         _ => false,
     };
 
@@ -1153,6 +1364,9 @@ fn ui(f: &mut Frame, app: &mut App) {
     if game.runtime == "cargo" {
         details.push(detail_row("  Bin:     ", game.bin, Color::Green));
         details.push(detail_row("  Crate:   ", game.package, Color::Rgb(180, 140, 220)));
+    } else if game.runtime == "cmake" {
+        details.push(detail_row("  Lang:    ", "C", Color::Green));
+        details.push(detail_row("  Repo:    ", game.package, Color::Rgb(180, 140, 220)));
     } else {
         details.push(detail_row("  Package: ", game.package, Color::Rgb(180, 140, 220)));
     }
@@ -1400,8 +1614,8 @@ fn ui(f: &mut Frame, app: &mut App) {
     let installed_count = app.installed.iter().filter(|&&x| x).count();
     let right_parts: &[(&str, bool)] = &[
         ("cargo", app.toolchains.cargo),
-        ("java", app.toolchains.java),
         ("python", app.toolchains.python),
+        ("cmake", app.toolchains.cmake),
     ];
     let mut right_spans: Vec<Span> = Vec::new();
     for (name, found) in right_parts {
