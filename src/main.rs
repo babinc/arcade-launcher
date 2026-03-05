@@ -22,190 +22,230 @@ struct Game {
     name: &'static str,
     icon: &'static str,
     bin: &'static str,
-    crate_name: &'static str,
+    package: &'static str,
     desc: &'static str,
     keys: &'static str,
     category: &'static str,
-    runtime: &'static str, // "cargo", "java", "python"
+    runtime: &'static str, // "cargo", "python", "pip", etc.
+    engine: &'static str,  // "ratatui", "crossterm", "bevy", "pyxel", "macroquad", etc.
     repo: &'static str,
+    install_cmd: &'static [&'static str],   // e.g. &["cargo", "install", "pkg"]
+    uninstall_cmd: &'static [&'static str], // e.g. &["cargo", "uninstall", "pkg"]
+    play_cmd: &'static [&'static str],      // custom launch command (empty = just run bin)
 }
 
 const GAMES: &[Game] = &[
     Game {
-        name: "Minesweeper",
-        icon: "#",
-        bin: "cmd-minesweeper",
-        crate_name: "cmd-minesweeper",
-        desc: "Sweep mines in the terminal. Flag bombs, reveal safe tiles.",
-        keys: "WASD move, Q uncover, E flag",
-        category: "Puzzle",
-        runtime: "cargo",
-        repo: "crates.io/crates/cmd-minesweeper",
+        name: "Minesweeper", icon: "#", bin: "cmd-minesweeper", package: "cmd-minesweeper",
+        desc: "Reveal tiles without hitting mines. Numbers show adjacent mine count. Flag tiles you think are mines. Clear all safe tiles to win.",
+        keys: "WASD move, Q uncover tile, E flag/unflag", category: "Puzzle", runtime: "cargo",
+        engine: "crossterm", repo: "https://crates.io/crates/cmd-minesweeper",
+        install_cmd: &["cargo", "install", "cmd-minesweeper"],
+        uninstall_cmd: &["cargo", "uninstall", "cmd-minesweeper"],
+        play_cmd: &[],
     },
     Game {
-        name: "Sudoku",
-        icon: "9",
-        bin: "sudoku",
-        crate_name: "sudoku-tui",
-        desc: "Classic number puzzles with multiple difficulty levels.",
-        keys: "Arrows, 1-9 place, Bksp clear",
-        category: "Puzzle",
-        runtime: "cargo",
-        repo: "crates.io/crates/sudoku-tui",
+        name: "Sudoku", icon: "9", bin: "sudoku", package: "sudoku-tui",
+        desc: "Fill a 9x9 grid so every row, column, and 3x3 box contains digits 1-9 with no repeats. Start with some numbers given — figure out the rest using logic.",
+        keys: "Arrow keys move, 1-9 place digit, Backspace clear cell", category: "Puzzle", runtime: "cargo",
+        engine: "cursive", repo: "https://crates.io/crates/sudoku-tui",
+        install_cmd: &["cargo", "install", "sudoku-tui"],
+        uninstall_cmd: &["cargo", "uninstall", "sudoku-tui"],
+        play_cmd: &[],
     },
     Game {
-        name: "Tetris",
-        icon: "T",
-        bin: "sxtetris",
-        crate_name: "sxtetris",
-        desc: "Tetrominos fall and stack. Clear lines, chase high scores!",
-        keys: "Arrows move, Space drop, P pause",
-        category: "Action",
-        runtime: "cargo",
-        repo: "crates.io/crates/sxtetris",
+        name: "Tetris", icon: "T", bin: "sxtetris", package: "sxtetris",
+        desc: "Falling block puzzle. Rotate and position tetrominoes to fill complete rows. Completed rows disappear. Game ends when blocks stack to the top.",
+        keys: "Left/Right move, Up rotate, Down soft drop, Space hard drop, P pause", category: "Action", runtime: "cargo",
+        engine: "ratatui", repo: "https://crates.io/crates/sxtetris",
+        install_cmd: &["cargo", "install", "sxtetris"],
+        uninstall_cmd: &["cargo", "uninstall", "sxtetris"],
+        play_cmd: &[],
     },
     Game {
-        name: "Snake",
-        icon: "~",
-        bin: "snake-tui",
-        crate_name: "snake-tui",
-        desc: "Eat food, grow longer, don't hit yourself.",
-        keys: "Arrows/WASD",
-        category: "Action",
-        runtime: "cargo",
-        repo: "crates.io/crates/snake-tui",
+        name: "Snake", icon: "~", bin: "snake-tui", package: "snake-tui",
+        desc: "Control a snake that grows each time it eats food. Don't crash into walls or your own tail. The longer you survive, the harder it gets.",
+        keys: "Arrow keys or WASD to change direction", category: "Action", runtime: "cargo",
+        engine: "crossterm", repo: "https://crates.io/crates/snake-tui",
+        install_cmd: &["cargo", "install", "snake-tui"],
+        uninstall_cmd: &["cargo", "uninstall", "snake-tui"],
+        play_cmd: &[],
     },
     Game {
-        name: "Wordle",
-        icon: "W",
-        bin: "wordlet",
-        crate_name: "wordlet",
-        desc: "Guess the 5-letter word in 6 tries. Colors show hints.",
-        keys: "Type letters, Enter submit",
-        category: "Word",
-        runtime: "cargo",
-        repo: "crates.io/crates/wordlet",
+        name: "Wordle", icon: "W", bin: "wordlet", package: "wordlet",
+        desc: "Guess the hidden 5-letter word in 6 tries. After each guess: green = correct letter and spot, yellow = correct letter wrong spot, gray = letter not in word.",
+        keys: "Type a 5-letter word, Enter to submit guess", category: "Word", runtime: "cargo",
+        engine: "crossterm", repo: "https://crates.io/crates/wordlet",
+        install_cmd: &["cargo", "install", "wordlet"],
+        uninstall_cmd: &["cargo", "uninstall", "wordlet"],
+        play_cmd: &[],
     },
     Game {
-        name: "Rustle",
-        icon: "R",
-        bin: "rustle-game",
-        crate_name: "rustle-game",
-        desc: "Play Wordle or Nerdle (math version) in the terminal.",
-        keys: "Type letters/numbers, Enter",
-        category: "Word",
-        runtime: "cargo",
-        repo: "crates.io/crates/rustle-game",
+        name: "Rustle", icon: "R", bin: "rustle-game", package: "rustle-game",
+        desc: "Wordle + Nerdle in one app. Guess words or math equations. Green = right spot, yellow = wrong spot, gray = not in answer.",
+        keys: "Type letters/numbers, Enter submit, pick mode at start", category: "Word", runtime: "cargo",
+        engine: "crossterm", repo: "https://crates.io/crates/rustle-game",
+        install_cmd: &["cargo", "install", "rustle-game"],
+        uninstall_cmd: &["cargo", "uninstall", "rustle-game"],
+        play_cmd: &[],
     },
     Game {
-        name: "Terminal RPG",
-        icon: "+",
-        bin: "terminal_rpg",
-        crate_name: "terminal_rpg",
-        desc: "A text-based RPG adventure in your terminal.",
-        keys: "Follow prompts",
-        category: "RPG",
-        runtime: "cargo",
-        repo: "crates.io/crates/terminal_rpg",
+        name: "Terminal RPG", icon: "+", bin: "terminal_rpg", package: "terminal_rpg",
+        desc: "Text-based RPG. Create a character, explore rooms, fight monsters, collect loot, and level up. Choose your actions from menus.",
+        keys: "Number keys to pick options, Enter confirm", category: "RPG", runtime: "cargo",
+        engine: "crossterm", repo: "https://crates.io/crates/terminal_rpg",
+        install_cmd: &["cargo", "install", "terminal_rpg"],
+        uninstall_cmd: &["cargo", "uninstall", "terminal_rpg"],
+        play_cmd: &[],
     },
     Game {
-        name: "Mastermind",
-        icon: "?",
-        bin: "mastermind-rs",
-        crate_name: "mastermind-rs",
-        desc: "Crack the secret color code. Bulls & Cows in the terminal.",
-        keys: "Type guesses, Enter submit",
-        category: "Puzzle",
-        runtime: "cargo",
-        repo: "crates.io/crates/mastermind-rs",
+        name: "Mastermind", icon: "?", bin: "mastermind-rs", package: "mastermind-rs",
+        desc: "Code-breaking board game. The computer picks a secret sequence of colored pegs. Each turn you guess a combination. You get clues: black peg = right color right spot, white peg = right color wrong spot. Use logic to deduce the code.",
+        keys: "TUI interface — navigate with arrows, select colors", category: "Puzzle", runtime: "cargo",
+        engine: "cursive", repo: "https://crates.io/crates/mastermind-rs",
+        install_cmd: &["cargo", "install", "mastermind-rs"],
+        uninstall_cmd: &["cargo", "uninstall", "mastermind-rs"],
+        play_cmd: &[],
     },
     Game {
-        name: "Flappy",
-        icon: "^",
-        bin: "flappy",
-        crate_name: "flappy",
-        desc: "Flappy bird in your terminal. Tap to fly!",
-        keys: "Space to flap",
-        category: "Action",
-        runtime: "cargo",
-        repo: "crates.io/crates/flappy",
+        name: "Pong", icon: "P", bin: "pong", package: "pong",
+        desc: "Classic 2-player Pong. A ball bounces between two paddles — move yours to deflect it. Miss the ball and your opponent scores. First to win takes it. Graphical window.",
+        keys: "W/S left paddle, Up/Down right paddle", category: "Action", runtime: "cargo",
+        engine: "bevy", repo: "https://crates.io/crates/pong",
+        install_cmd: &["cargo", "install", "pong"],
+        uninstall_cmd: &["cargo", "uninstall", "pong"],
+        play_cmd: &[],
     },
     Game {
-        name: "Albion RPG",
-        icon: "&",
-        bin: "albion_terminal_rpg",
-        crate_name: "albion_terminal_rpg",
-        desc: "A text-based RPG set in the world of Albion.",
-        keys: "Follow prompts",
-        category: "RPG",
-        runtime: "cargo",
-        repo: "crates.io/crates/albion_terminal_rpg",
+        name: "Albion RPG", icon: "&", bin: "albion_terminal_rpg", package: "albion_terminal_rpg",
+        desc: "Text RPG set in Albion. Pick a class, explore towns and dungeons, battle enemies in turn-based combat, upgrade gear.",
+        keys: "Number keys to choose, Enter confirm", category: "RPG", runtime: "cargo",
+        engine: "crossterm", repo: "https://crates.io/crates/albion_terminal_rpg",
+        install_cmd: &["cargo", "install", "albion_terminal_rpg"],
+        uninstall_cmd: &["cargo", "uninstall", "albion_terminal_rpg"],
+        play_cmd: &[],
     },
     Game {
-        name: "2048",
-        icon: "2",
-        bin: "2048",
-        crate_name: "cli_2048",
-        desc: "Slide numbered tiles on a grid to combine them and reach 2048.",
-        keys: "Arrow keys / WASD",
-        category: "Puzzle",
-        runtime: "cargo",
-        repo: "crates.io/crates/cli_2048",
+        name: "2048", icon: "2", bin: "2048", package: "cli_2048",
+        desc: "Slide all tiles in one direction. Matching numbers merge and double. Keep merging to reach 2048. Board fills up = game over.",
+        keys: "Arrow keys / WASD to slide all tiles", category: "Puzzle", runtime: "cargo",
+        engine: "crossterm", repo: "https://crates.io/crates/cli_2048",
+        install_cmd: &["cargo", "install", "cli_2048"],
+        uninstall_cmd: &["cargo", "uninstall", "cli_2048"],
+        play_cmd: &[],
     },
     Game {
-        name: "Tower Defense",
-        icon: "O",
-        bin: "rtd",
-        crate_name: "rust_tower_defense",
-        desc: "Place towers and defend against waves of enemies.",
-        keys: "Mouse + keyboard",
-        category: "Strategy",
-        runtime: "cargo",
-        repo: "crates.io/crates/rust_tower_defense",
+        name: "FerrisType", icon: "F", bin: "ferristype", package: "ferristype",
+        desc: "Typing test. Words scroll across the screen — type them as fast and accurately as you can. Shows WPM and accuracy at the end.",
+        keys: "Just type! Words appear, match them exactly", category: "Skill", runtime: "cargo",
+        engine: "crossterm", repo: "https://crates.io/crates/ferristype",
+        install_cmd: &["cargo", "install", "ferristype"],
+        uninstall_cmd: &["cargo", "uninstall", "ferristype"],
+        play_cmd: &[],
     },
     Game {
-        name: "Sokoban",
-        icon: "B",
-        bin: "sokoban-rs",
-        crate_name: "sokoban-rs",
-        desc: "Push boxes onto targets. Classic puzzle game with Piston graphics.",
-        keys: "Arrow keys",
-        category: "Puzzle",
-        runtime: "cargo",
-        repo: "crates.io/crates/sokoban-rs",
+        name: "Block Breaker", icon: "=", bin: "block-breaker-tui", package: "block-breaker-tui",
+        desc: "Breakout clone. Bounce a ball off your paddle to destroy bricks above. Don't let the ball fall past your paddle. Clear all bricks to win.",
+        keys: "Left/Right move paddle, Space launch ball", category: "Action", runtime: "cargo",
+        engine: "crossterm", repo: "https://crates.io/crates/block-breaker-tui",
+        install_cmd: &["cargo", "install", "block-breaker-tui"],
+        uninstall_cmd: &["cargo", "uninstall", "block-breaker-tui"],
+        play_cmd: &[],
     },
     Game {
-        name: "Rocket",
-        icon: "A",
-        bin: "rocket-game",
-        crate_name: "rocket-game",
-        desc: "Asteroids-style space shooter. Blast rocks, survive waves.",
-        keys: "Arrows rotate/thrust, Space shoot",
-        category: "Action",
-        runtime: "cargo",
-        repo: "crates.io/crates/rocket-game",
+        name: "Dino Runner", icon: "D", bin: "terminal-dino", package: "terminal-dino",
+        desc: "The Chrome offline dino game in your terminal. Obstacles scroll toward you — jump over them to survive. Speed increases over time. How far can you go?",
+        keys: "Space/W/Up jump, P pause, Esc/Q quit", category: "Action", runtime: "cargo",
+        engine: "crossterm", repo: "https://crates.io/crates/terminal-dino",
+        install_cmd: &["cargo", "install", "terminal-dino"],
+        uninstall_cmd: &["cargo", "uninstall", "terminal-dino"],
+        play_cmd: &[],
     },
     Game {
-        name: "Snake GFX",
-        icon: "S",
-        bin: "gusbunce-snake",
-        crate_name: "gusbunce-snake",
-        desc: "Graphical snake game built with the Piston engine.",
-        keys: "Arrow keys",
-        category: "Action",
-        runtime: "cargo",
-        repo: "crates.io/crates/gusbunce-snake",
+        name: "yJump", icon: "^", bin: "yjump", package: "yjump",
+        desc: "Side-scrolling terminal game. Pick a direction, jump to collide with characters on screen. Double-jump and dash to reach them. Only key presses count — timing is everything.",
+        keys: "Arrows/WASD move, Up jump, Up again double-jump, double-tap L/R dash, Down stop", category: "Action", runtime: "cargo",
+        engine: "crossterm", repo: "https://crates.io/crates/yjump",
+        install_cmd: &["cargo", "install", "yjump"],
+        uninstall_cmd: &["cargo", "uninstall", "yjump"],
+        play_cmd: &[],
     },
     Game {
-        name: "Block Breaker",
-        icon: "=",
-        bin: "block-breaker-tui",
-        crate_name: "block-breaker-tui",
-        desc: "Breakout-style brick breaker in the terminal.",
-        keys: "Left/Right move, Space launch",
-        category: "Action",
-        runtime: "cargo",
-        repo: "crates.io/crates/block-breaker-tui",
+        name: "Chess TUI", icon: "K", bin: "chess-tui", package: "chess-tui",
+        desc: "Full chess in the terminal. Play vs a friend locally, against a UCI engine (Stockfish), or online via Lichess. Supports multiple board skins.",
+        keys: "Arrows/hjkl move cursor, Space select/place, ? help, s cycle skins, q quit", category: "Strategy", runtime: "cargo",
+        engine: "ratatui", repo: "https://crates.io/crates/chess-tui",
+        install_cmd: &["cargo", "install", "chess-tui"],
+        uninstall_cmd: &["cargo", "uninstall", "chess-tui"],
+        play_cmd: &[],
+    },
+    Game {
+        name: "Kingslayer", icon: "Q", bin: "kingslayer", package: "kingslayer",
+        desc: "Classic text adventure. Type natural language commands to explore a dungeon, pick up items, solve puzzles, and fight. Try 'look', 'go north', 'take key', 'open door'.",
+        keys: "Type commands: look, go [dir], take [item], use [item], attack", category: "RPG", runtime: "cargo",
+        engine: "stdio", repo: "https://crates.io/crates/kingslayer",
+        install_cmd: &["cargo", "install", "kingslayer"],
+        uninstall_cmd: &["cargo", "uninstall", "kingslayer"],
+        play_cmd: &[],
+    },
+    Game {
+        name: "Dungeon CLI", icon: "D", bin: "dungeoncli", package: "dungeoncli",
+        desc: "Explore a randomly generated dungeon. Fight monsters in turn-based combat, collect loot, and level up your character. Choose actions from numbered menus each turn.",
+        keys: "Type a number to pick an action, Enter to confirm", category: "RPG", runtime: "cargo",
+        engine: "stdio", repo: "https://crates.io/crates/dungeoncli",
+        install_cmd: &["cargo", "install", "dungeoncli"],
+        uninstall_cmd: &["cargo", "uninstall", "dungeoncli"],
+        play_cmd: &[],
+    },
+    Game {
+        name: "RecWars", icon: "W", bin: "rec-wars", package: "rec-wars",
+        desc: "Top-down tank deathmatch. Drive tanks, hovercraft, or hummers and blast opponents with 8 weapons. Free-for-all, team war, or capture the cow. Graphical window.",
+        keys: "Arrows drive, Ctrl fire, ; or ` console, Tab switch weapon",
+        category: "Action", runtime: "cargo",
+        engine: "macroquad", repo: "https://crates.io/crates/rec-wars",
+        install_cmd: &["cargo", "install", "rec-wars"],
+        uninstall_cmd: &["cargo", "uninstall", "rec-wars"],
+        play_cmd: &[],
+    },
+    Game {
+        name: "Pyxel Shooter", icon: "!", bin: "pyxel", package: "pyxel",
+        desc: "Retro space shooter with pixel graphics. Dodge enemy fire, shoot down waves of enemies, collect power-ups. Classic arcade action with 8-bit sound.",
+        keys: "Arrow keys move ship, Space shoot",
+        category: "Action", runtime: "python",
+        engine: "pyxel", repo: "https://github.com/kitao/pyxel",
+        install_cmd: &["pip", "install", "--user", "pyxel"],
+        uninstall_cmd: &["pip", "uninstall", "-y", "pyxel"],
+        play_cmd: &["python", "-m", "pyxel", "run"],
+    },
+    Game {
+        name: "Pyxel Platformer", icon: "P", bin: "pyxel", package: "pyxel",
+        desc: "Retro pixel platformer. Run and jump through side-scrolling levels, avoid hazards, collect items. Classic 8-bit style with chiptune music.",
+        keys: "Arrow keys move, Space/Up jump",
+        category: "Action", runtime: "python",
+        engine: "pyxel", repo: "https://github.com/kitao/pyxel",
+        install_cmd: &["pip", "install", "--user", "pyxel"],
+        uninstall_cmd: &["pip", "uninstall", "-y", "pyxel"],
+        play_cmd: &["python", "-m", "pyxel", "run"],
+    },
+    Game {
+        name: "Mega Wing", icon: "M", bin: "pyxel", package: "pyxel",
+        desc: "Side-scrolling shoot-em-up. Pilot your ship through waves of enemies, dodge bullets, grab power-ups. Boss fights at the end of each stage.",
+        keys: "Arrow keys move, Z shoot, X bomb",
+        category: "Action", runtime: "python",
+        engine: "pyxel", repo: "https://github.com/kitao/pyxel",
+        install_cmd: &["pip", "install", "--user", "pyxel"],
+        uninstall_cmd: &["pip", "uninstall", "-y", "pyxel"],
+        play_cmd: &["python", "-m", "pyxel", "play"],
+    },
+    Game {
+        name: "Laser Jetman", icon: "J", bin: "pyxel", package: "pyxel",
+        desc: "Jetpack shooter. Fly through caverns with a jetpack, blast enemies with your laser, collect fuel. Retro pixel art action.",
+        keys: "Arrow keys move, Z jetpack, X shoot",
+        category: "Action", runtime: "python",
+        engine: "pyxel", repo: "https://github.com/kitao/pyxel",
+        install_cmd: &["pip", "install", "--user", "pyxel"],
+        uninstall_cmd: &["pip", "uninstall", "-y", "pyxel"],
+        play_cmd: &["python", "-m", "pyxel", "play"],
     },
 ];
 
@@ -342,6 +382,7 @@ impl Toolchains {
 struct App {
     list_state: ListState,
     installed: Vec<bool>,
+    sizes: Vec<Option<u64>>,
     should_quit: bool,
     message: Option<(String, bool)>,
     tick: u64,
@@ -351,9 +392,37 @@ struct App {
     last_log: Option<String>,
 }
 
+fn check_pyxel_installed() -> bool {
+    Command::new("python")
+        .args(["-c", "import pyxel"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn compute_installed() -> Vec<bool> {
+    let pyxel_ok = check_pyxel_installed();
+    GAMES.iter().map(|g| {
+        if g.runtime == "python" && !g.play_cmd.is_empty() {
+            pyxel_ok
+        } else {
+            which(g.bin)
+        }
+    }).collect()
+}
+
+fn compute_sizes(installed: &[bool]) -> Vec<Option<u64>> {
+    GAMES.iter().zip(installed.iter()).map(|(g, &inst)| {
+        if inst { install_size(g) } else { None }
+    }).collect()
+}
+
 impl App {
     fn new() -> Self {
-        let installed: Vec<bool> = GAMES.iter().map(|g| which(g.bin)).collect();
+        let installed = compute_installed();
+        let sizes = compute_sizes(&installed);
         let mut list_state = ListState::default();
         list_state.select(Some(0));
         let toolchains = Toolchains::detect();
@@ -365,6 +434,7 @@ impl App {
         Self {
             list_state,
             installed,
+            sizes,
             should_quit: false,
             message,
             tick: 0,
@@ -396,22 +466,116 @@ impl App {
     }
 
     fn refresh(&mut self) {
-        self.installed = GAMES.iter().map(|g| which(g.bin)).collect();
+        self.installed = compute_installed();
+        self.sizes = compute_sizes(&self.installed);
         self.toolchains = Toolchains::detect();
     }
 }
 
 fn which(bin: &str) -> bool {
-    std::env::var_os("PATH")
-        .map(|paths| {
-            std::env::split_paths(&paths).any(|dir| {
-                let full = dir.join(bin);
-                full.is_file()
-                    || full.with_extension("exe").is_file()
-                    || full.with_extension("cmd").is_file()
-            })
+    bin_path(bin).is_some()
+}
+
+fn has_runtime(toolchains: &Toolchains, game: &Game) -> bool {
+    match game.runtime {
+        "cargo" => toolchains.cargo,
+        "python" | "pip" => toolchains.python,
+        "java" => toolchains.java,
+        _ => true,
+    }
+}
+
+fn runtime_install_hint(game: &Game) -> &'static str {
+    match game.runtime {
+        "cargo" => "Install Rust: https://rustup.rs",
+        "python" | "pip" => "Install Python: https://python.org/downloads",
+        "java" => "Install Java: https://adoptium.net",
+        _ => "Unknown runtime",
+    }
+}
+
+fn bin_path(bin: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths).find_map(|dir| {
+            let full = dir.join(bin);
+            for candidate in [full.clone(), full.with_extension("exe"), full.with_extension("cmd")] {
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+            None
         })
-        .unwrap_or(false)
+    })
+}
+
+fn install_size(game: &Game) -> Option<u64> {
+    // Python module games: size isn't meaningful via bin_path
+    if game.runtime == "python" && !game.play_cmd.is_empty() {
+        return None;
+    }
+    // Check for a game directory next to the binary first (non-cargo games with assets)
+    if let Some(p) = bin_path(game.bin) {
+        let game_dir = p.parent().and_then(|parent| {
+            let dir = parent.join(game.bin);
+            if dir.is_dir() { Some(dir) } else { None }
+        });
+        if let Some(dir) = game_dir {
+            let dir_size = dir_size_recursive(&dir);
+            let bin_bytes = std::fs::metadata(&p).ok().map(|m| m.len()).unwrap_or(0);
+            return Some(dir_size + bin_bytes);
+        }
+        // Cargo games: binary is the whole install
+        return std::fs::metadata(&p).ok().map(|m| m.len());
+    }
+    None
+}
+
+fn dir_size_recursive(path: &std::path::Path) -> u64 {
+    let mut total = 0;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let meta = entry.metadata();
+            if let Ok(meta) = meta {
+                if meta.is_dir() {
+                    total += dir_size_recursive(&entry.path());
+                } else {
+                    total += meta.len();
+                }
+            }
+        }
+    }
+    total
+}
+
+fn format_size(bytes: u64) -> String {
+    if bytes >= 1_048_576 {
+        format!("{:.1} MB", bytes as f64 / 1_048_576.0)
+    } else if bytes >= 1024 {
+        format!("{:.0} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+fn pyxel_script_path(game: &Game) -> Option<String> {
+    // Find pyxel examples directory
+    let output = Command::new("python")
+        .args(["-c", "import pyxel, os; print(os.path.dirname(pyxel.__file__))"])
+        .output()
+        .ok()?;
+    let pyxel_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if pyxel_dir.is_empty() { return None; }
+
+    let examples = format!("{}/examples", pyxel_dir);
+    let apps = format!("{}/examples/apps", pyxel_dir);
+
+    match game.name {
+        "Pyxel Shooter" => Some(format!("{}/09_shooter.py", examples)),
+        "Pyxel Platformer" => Some(format!("{}/10_platformer.py", examples)),
+        "Mega Wing" => Some(format!("{}/mega_wing.pyxapp", apps)),
+        "Laser Jetman" => Some(format!("{}/laser-jetman.pyxapp", apps)),
+        _ => None,
+    }
 }
 
 fn run_visible(
@@ -458,10 +622,13 @@ fn main() -> io::Result<()> {
     let mut app = App::new();
 
     while !app.should_quit {
-        // Auto-scroll install panel to bottom
+        // Auto-scroll install panel to follow output
         if let Mode::Installing { ref lines, ref done, ref mut scroll } = app.mode {
             let line_count = lines.lock().unwrap().len() as u16;
-            *scroll = line_count.saturating_sub(1);
+            // Panel height is roughly: main_area height - 2 (borders)
+            // main_area = total height - 11 (banner) - 3 (footer)
+            let panel_height = terminal.size().map(|s| s.height.saturating_sub(16)).unwrap_or(10);
+            *scroll = line_count.saturating_sub(panel_height);
             // Save log when done
             if let Some(_ok) = *done.lock().unwrap() {
                 app.last_log = Some(lines.lock().unwrap().join("\n"));
@@ -488,8 +655,9 @@ fn main() -> io::Result<()> {
                             }
                             KeyCode::Esc | KeyCode::Char('q') => {
                                 // Only allow exit if done
-                                if done.lock().unwrap().is_some() {
-                                    let ok = done.lock().unwrap().unwrap_or(false);
+                                let done_val = *done.lock().unwrap();
+                                if done_val.is_some() {
+                                    let ok = done_val.unwrap_or(false);
                                     app.refresh();
                                     let idx = app.selected();
                                     let msg = if ok {
@@ -564,9 +732,21 @@ fn main() -> io::Result<()> {
                                     false,
                                 ));
                             } else {
-                                let bin = GAMES[idx].bin;
-                                let (t, _ok) = run_visible(terminal, bin, &[])?;
-                                terminal = t;
+                                let game = &GAMES[idx];
+                                if !game.play_cmd.is_empty() {
+                                    // Custom play command (e.g. pyxel games)
+                                    let script = pyxel_script_path(game);
+                                    let cmd = game.play_cmd[0];
+                                    let mut args: Vec<&str> = game.play_cmd[1..].to_vec();
+                                    if let Some(ref s) = script {
+                                        args.push(s);
+                                    }
+                                    let (t, _ok) = run_visible(terminal, cmd, &args)?;
+                                    terminal = t;
+                                } else {
+                                    let (t, _ok) = run_visible(terminal, game.bin, &[])?;
+                                    terminal = t;
+                                }
                                 // Prompt for score after game
                                 app.mode = Mode::ScoreInput {
                                     buffer: String::new(),
@@ -586,22 +766,31 @@ fn main() -> io::Result<()> {
                                     format!("{} not installed", GAMES[idx].name)
                                 };
                                 app.message = Some((msg, installing));
+                            } else if installing && !has_runtime(&app.toolchains, &GAMES[idx]) {
+                                let hint = runtime_install_hint(&GAMES[idx]);
+                                app.message = Some((
+                                    format!("Missing {}! {}", GAMES[idx].runtime, hint),
+                                    false,
+                                ));
                             } else {
-                                let action = if installing { "install" } else { "uninstall" };
+                                let cmd_parts: Vec<String> = if installing {
+                                    GAMES[idx].install_cmd
+                                } else {
+                                    GAMES[idx].uninstall_cmd
+                                }.iter().map(|s| s.to_string()).collect();
+
                                 let lines = Arc::new(Mutex::new(vec![
-                                    format!("$ cargo {} {}", action, GAMES[idx].crate_name),
+                                    format!("$ {}", cmd_parts.join(" ")),
                                     String::new(),
                                 ]));
                                 let done = Arc::new(Mutex::new(None));
 
                                 let lines_clone = Arc::clone(&lines);
                                 let done_clone = Arc::clone(&done);
-                                let cmd_action = action.to_string();
-                                let cmd_crate = GAMES[idx].crate_name.to_string();
 
                                 thread::spawn(move || {
-                                    let result = Command::new("cargo")
-                                        .args([&cmd_action, &cmd_crate])
+                                    let result = Command::new(&cmd_parts[0])
+                                        .args(&cmd_parts[1..])
                                         .stdout(Stdio::piped())
                                         .stderr(Stdio::piped())
                                         .spawn();
@@ -907,7 +1096,8 @@ fn ui(f: &mut Frame, app: &mut App) {
             Style::default().fg(Color::Rgb(100, 100, 160)).add_modifier(Modifier::BOLD),
         )),
         detail_row("  Bin:     ", game.bin, Color::Green),
-        detail_row("  Crate:   ", game.crate_name, Color::Rgb(180, 140, 220)),
+        detail_row("  Engine:  ", game.engine, Color::Rgb(200, 160, 100)),
+        detail_row("  Crate:   ", game.package, Color::Rgb(180, 140, 220)),
         detail_row("  Source:  ", game.repo, Color::Rgb(100, 160, 220)),
         Line::from(vec![
             Span::styled("  Runtime: ", Style::default().fg(Color::Rgb(100, 100, 130))),
@@ -918,8 +1108,14 @@ fn ui(f: &mut Frame, app: &mut App) {
             ),
         ]),
     ];
-    let install_cmd = format!("cargo install {}", game.crate_name);
+    let install_cmd = game.install_cmd.join(" ");
     details.push(detail_row("  Install: ", &install_cmd, Color::Rgb(150, 150, 170)));
+    let size_str = if installed {
+        app.sizes[idx].map(format_size).unwrap_or_else(|| "unknown".to_string())
+    } else {
+        "-".to_string()
+    };
+    details.push(detail_row("  Size:    ", &size_str, Color::Rgb(150, 150, 170)));
 
     if let Some(score) = best {
         details.push(Line::from(vec![
@@ -1032,8 +1228,9 @@ fn ui(f: &mut Frame, app: &mut App) {
     // --- Install Output Panel (third column) ---
     if let Mode::Installing { ref lines, ref done, ref scroll } = app.mode {
         let locked = lines.lock().unwrap();
-        let is_done = done.lock().unwrap().is_some();
-        let ok = done.lock().unwrap().unwrap_or(false);
+        let done_val = *done.lock().unwrap();
+        let is_done = done_val.is_some();
+        let ok = done_val.unwrap_or(false);
 
         let mut output_lines: Vec<Line> = locked.iter().map(|l| {
             let color = if l.starts_with("   Compiling") {
@@ -1083,7 +1280,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         let title = if is_done {
             if ok { "COMPLETE" } else { "FAILED" }
         } else {
-            "CARGO"
+            "INSTALLING"
         };
         let title_color = if is_done {
             if ok { Color::Green } else { Color::Red }
