@@ -247,6 +247,46 @@ const GAMES: &[Game] = &[
         uninstall_cmd: &["pip", "uninstall", "-y", "pyxel"],
         play_cmd: &["python", "-m", "pyxel", "play"],
     },
+    Game {
+        name: "ASCII Arena", icon: "A", bin: "asciiarena", package: "asciiarena",
+        desc: "Multiplayer terminal deathmatch. Pick an ASCII character and fight in an arena using arcade-style skills. Last one standing wins. Supports networked multiplayer.",
+        keys: "WASD move, Space attack, 1-4 skills",
+        category: "Action", runtime: "cargo",
+        engine: "ratatui", repo: "https://crates.io/crates/asciiarena",
+        install_cmd: &["cargo", "install", "asciiarena"],
+        uninstall_cmd: &["cargo", "uninstall", "asciiarena"],
+        play_cmd: &[],
+    },
+    Game {
+        name: "Blademaster", icon: "B", bin: "blademaster", package: "blademaster",
+        desc: "Roguelike dungeon crawler. Explore procedurally generated levels, fight monsters in turn-based combat, collect loot, and level up. Permadeath — every run is different.",
+        keys: "WASD/Arrows move, bump to attack, i inventory",
+        category: "RPG", runtime: "cargo",
+        engine: "crossterm", repo: "https://crates.io/crates/blademaster",
+        install_cmd: &["cargo", "install", "blademaster"],
+        uninstall_cmd: &["cargo", "uninstall", "blademaster"],
+        play_cmd: &[],
+    },
+    Game {
+        name: "L1T Lasers", icon: "L", bin: "l1t", package: "l1t",
+        desc: "Laser combat puzzle. Aim and shoot lasers to light up statues on the grid. Reflect beams off walls and obstacles. Each level gets trickier.",
+        keys: "Arrows move, Space shoot laser, R reset level",
+        category: "Action", runtime: "cargo",
+        engine: "crossterm", repo: "https://crates.io/crates/l1t",
+        install_cmd: &["cargo", "install", "l1t"],
+        uninstall_cmd: &["cargo", "uninstall", "l1t"],
+        play_cmd: &[],
+    },
+    Game {
+        name: "Rebels", icon: "R", bin: "rebels", package: "rebels",
+        desc: "Space pirate basketball. Manage an anarchic crew of spacepirates, travel the galaxy, and compete in basketball-combat matches. Build your team and dominate the league.",
+        keys: "Arrow keys navigate, Enter select, Tab switch view",
+        category: "Strategy", runtime: "cargo",
+        engine: "ratatui", repo: "https://crates.io/crates/rebels",
+        install_cmd: &["cargo", "install", "rebels"],
+        uninstall_cmd: &["cargo", "uninstall", "rebels"],
+        play_cmd: &[],
+    },
 ];
 
 const BANNER: &[&str] = &[
@@ -788,7 +828,30 @@ fn main() -> io::Result<()> {
                                 let lines_clone = Arc::clone(&lines);
                                 let done_clone = Arc::clone(&done);
 
+                                // Kill the game process before uninstall to release file locks
+                                let kill_bin = if !installing {
+                                    Some(GAMES[idx].bin.to_string())
+                                } else {
+                                    None
+                                };
+
                                 thread::spawn(move || {
+                                    if let Some(ref bin) = kill_bin {
+                                        let _ = if cfg!(windows) {
+                                            Command::new("taskkill")
+                                                .args(["/F", "/IM", &format!("{}.exe", bin)])
+                                                .stdout(Stdio::null())
+                                                .stderr(Stdio::null())
+                                                .status()
+                                        } else {
+                                            Command::new("pkill")
+                                                .args(["-f", bin])
+                                                .stdout(Stdio::null())
+                                                .stderr(Stdio::null())
+                                                .status()
+                                        };
+                                    }
+
                                     let result = Command::new(&cmd_parts[0])
                                         .args(&cmd_parts[1..])
                                         .stdout(Stdio::piped())
