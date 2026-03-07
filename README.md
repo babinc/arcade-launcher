@@ -19,21 +19,12 @@ A terminal game launcher built with Rust. Browse, install, and play terminal and
 | Game | Type | Category |
 |------|------|----------|
 | Minesweeper | Terminal | Puzzle |
-| Sudoku | Terminal | Puzzle |
 | Tetris | Terminal | Action |
-| Snake | Terminal | Action |
-| Wordle | Terminal | Word |
-| Rustle | Terminal | Word |
-| Terminal RPG | Terminal | RPG |
-| Mastermind | Terminal | Puzzle |
-| Flappy | Graphical | Action |
-| Albion RPG | Terminal | RPG |
+| Chess TUI | Terminal | Strategy |
 | 2048 | Terminal | Puzzle |
-| Tower Defense | Graphical | Strategy |
-| Sokoban | Graphical | Puzzle |
-| Rocket | Graphical | Action |
-| Snake GFX | Graphical | Action |
-| Block Breaker | Terminal | Action |
+| RecWars | Graphical | Action |
+| Space Invaders | Graphical | Action |
+| Asteroids | Graphical | Action |
 
 ## Install
 

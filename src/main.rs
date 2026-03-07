@@ -1,3 +1,9 @@
+mod app;
+mod catalog;
+mod install;
+mod ui;
+mod util;
+
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEventKind},
@@ -6,847 +12,22 @@ use crossterm::{
         self, disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
     },
 };
-use ratatui::{
-    prelude::*,
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
-};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::io::{self, BufRead, BufReader, Write};
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use ratatui::prelude::*;
+use std::io::{self, Write};
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-struct Game {
-    name: &'static str,
-    icon: &'static str,
-    bin: &'static str,
-    package: &'static str,
-    desc: &'static str,
-    keys: &'static str,
-    category: &'static str,
-    runtime: &'static str, // "cargo", "python", "pip", etc.
-    engine: &'static str,  // "ratatui", "crossterm", "bevy", "pyxel", "macroquad", etc.
-    repo: &'static str,
-    install_cmd: &'static [&'static str],   // e.g. &["cargo", "install", "pkg"]
-    uninstall_cmd: &'static [&'static str], // e.g. &["cargo", "uninstall", "pkg"]
-    play_cmd: &'static [&'static str],      // custom launch command (empty = just run bin)
-}
-
-const GAMES: &[Game] = &[
-    Game {
-        name: "Minesweeper", icon: "#", bin: "cmd-minesweeper", package: "cmd-minesweeper",
-        desc: "Reveal tiles without hitting mines. Numbers show adjacent mine count. Flag tiles you think are mines. Clear all safe tiles to win.",
-        keys: "WASD move, Q uncover tile, E flag/unflag", category: "Puzzle", runtime: "cargo",
-        engine: "crossterm", repo: "https://crates.io/crates/cmd-minesweeper",
-        install_cmd: &["cargo", "install", "cmd-minesweeper"],
-        uninstall_cmd: &["cargo", "uninstall", "cmd-minesweeper"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Sudoku", icon: "9", bin: "sudoku", package: "sudoku-tui",
-        desc: "Fill a 9x9 grid so every row, column, and 3x3 box contains digits 1-9 with no repeats. Start with some numbers given — figure out the rest using logic.",
-        keys: "Arrow keys move, 1-9 place digit, Backspace clear cell", category: "Puzzle", runtime: "cargo",
-        engine: "cursive", repo: "https://crates.io/crates/sudoku-tui",
-        install_cmd: &["cargo", "install", "sudoku-tui"],
-        uninstall_cmd: &["cargo", "uninstall", "sudoku-tui"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Tetris", icon: "T", bin: "sxtetris", package: "sxtetris",
-        desc: "Falling block puzzle. Rotate and position tetrominoes to fill complete rows. Completed rows disappear. Game ends when blocks stack to the top.",
-        keys: "Left/Right move, Up rotate, Down soft drop, Space hard drop, P pause", category: "Action", runtime: "cargo",
-        engine: "ratatui", repo: "https://crates.io/crates/sxtetris",
-        install_cmd: &["cargo", "install", "sxtetris"],
-        uninstall_cmd: &["cargo", "uninstall", "sxtetris"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Snake", icon: "~", bin: "snake-tui", package: "snake-tui",
-        desc: "Control a snake that grows each time it eats food. Don't crash into walls or your own tail. The longer you survive, the harder it gets.",
-        keys: "Arrow keys or WASD to change direction", category: "Action", runtime: "cargo",
-        engine: "crossterm", repo: "https://crates.io/crates/snake-tui",
-        install_cmd: &["cargo", "install", "snake-tui"],
-        uninstall_cmd: &["cargo", "uninstall", "snake-tui"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Wordle", icon: "W", bin: "wordlet", package: "wordlet",
-        desc: "Guess the hidden 5-letter word in 6 tries. After each guess: green = correct letter and spot, yellow = correct letter wrong spot, gray = letter not in word.",
-        keys: "Type a 5-letter word, Enter to submit guess", category: "Word", runtime: "cargo",
-        engine: "crossterm", repo: "https://crates.io/crates/wordlet",
-        install_cmd: &["cargo", "install", "wordlet"],
-        uninstall_cmd: &["cargo", "uninstall", "wordlet"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Rustle", icon: "R", bin: "rustle-game", package: "rustle-game",
-        desc: "Wordle + Nerdle in one app. Guess words or math equations. Green = right spot, yellow = wrong spot, gray = not in answer.",
-        keys: "Type letters/numbers, Enter submit, pick mode at start", category: "Word", runtime: "cargo",
-        engine: "crossterm", repo: "https://crates.io/crates/rustle-game",
-        install_cmd: &["cargo", "install", "rustle-game"],
-        uninstall_cmd: &["cargo", "uninstall", "rustle-game"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Terminal RPG", icon: "+", bin: "terminal_rpg", package: "terminal_rpg",
-        desc: "Text-based RPG. Create a character, explore rooms, fight monsters, collect loot, and level up. Choose your actions from menus.",
-        keys: "Number keys to pick options, Enter confirm", category: "RPG", runtime: "cargo",
-        engine: "crossterm", repo: "https://crates.io/crates/terminal_rpg",
-        install_cmd: &["cargo", "install", "terminal_rpg"],
-        uninstall_cmd: &["cargo", "uninstall", "terminal_rpg"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Mastermind", icon: "?", bin: "mastermind-rs", package: "mastermind-rs",
-        desc: "Code-breaking board game. The computer picks a secret sequence of colored pegs. Each turn you guess a combination. You get clues: black peg = right color right spot, white peg = right color wrong spot. Use logic to deduce the code.",
-        keys: "TUI interface — navigate with arrows, select colors", category: "Puzzle", runtime: "cargo",
-        engine: "cursive", repo: "https://crates.io/crates/mastermind-rs",
-        install_cmd: &["cargo", "install", "mastermind-rs"],
-        uninstall_cmd: &["cargo", "uninstall", "mastermind-rs"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Pong", icon: "P", bin: "pong", package: "pong",
-        desc: "Classic 2-player Pong. A ball bounces between two paddles — move yours to deflect it. Miss the ball and your opponent scores. First to win takes it. Graphical window.",
-        keys: "W/S left paddle, Up/Down right paddle", category: "Action", runtime: "cargo",
-        engine: "bevy", repo: "https://crates.io/crates/pong",
-        install_cmd: &["cargo", "install", "pong"],
-        uninstall_cmd: &["cargo", "uninstall", "pong"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Albion RPG", icon: "&", bin: "albion_terminal_rpg", package: "albion_terminal_rpg",
-        desc: "Text RPG set in Albion. Pick a class, explore towns and dungeons, battle enemies in turn-based combat, upgrade gear.",
-        keys: "Number keys to choose, Enter confirm", category: "RPG", runtime: "cargo",
-        engine: "crossterm", repo: "https://crates.io/crates/albion_terminal_rpg",
-        install_cmd: &["cargo", "install", "albion_terminal_rpg"],
-        uninstall_cmd: &["cargo", "uninstall", "albion_terminal_rpg"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "2048", icon: "2", bin: "2048", package: "cli_2048",
-        desc: "Slide all tiles in one direction. Matching numbers merge and double. Keep merging to reach 2048. Board fills up = game over.",
-        keys: "Arrow keys / WASD to slide all tiles", category: "Puzzle", runtime: "cargo",
-        engine: "crossterm", repo: "https://crates.io/crates/cli_2048",
-        install_cmd: &["cargo", "install", "cli_2048"],
-        uninstall_cmd: &["cargo", "uninstall", "cli_2048"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "FerrisType", icon: "F", bin: "ferristype", package: "ferristype",
-        desc: "Typing test. Words scroll across the screen — type them as fast and accurately as you can. Shows WPM and accuracy at the end.",
-        keys: "Just type! Words appear, match them exactly", category: "Skill", runtime: "cargo",
-        engine: "crossterm", repo: "https://crates.io/crates/ferristype",
-        install_cmd: &["cargo", "install", "ferristype"],
-        uninstall_cmd: &["cargo", "uninstall", "ferristype"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Block Breaker", icon: "=", bin: "block-breaker-tui", package: "block-breaker-tui",
-        desc: "Breakout clone. Bounce a ball off your paddle to destroy bricks above. Don't let the ball fall past your paddle. Clear all bricks to win.",
-        keys: "Left/Right move paddle, Space launch ball", category: "Action", runtime: "cargo",
-        engine: "crossterm", repo: "https://crates.io/crates/block-breaker-tui",
-        install_cmd: &["cargo", "install", "block-breaker-tui"],
-        uninstall_cmd: &["cargo", "uninstall", "block-breaker-tui"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Dino Runner", icon: "D", bin: "terminal-dino", package: "terminal-dino",
-        desc: "The Chrome offline dino game in your terminal. Obstacles scroll toward you — jump over them to survive. Speed increases over time. How far can you go?",
-        keys: "Space/W/Up jump, P pause, Esc/Q quit", category: "Action", runtime: "cargo",
-        engine: "crossterm", repo: "https://crates.io/crates/terminal-dino",
-        install_cmd: &["cargo", "install", "terminal-dino"],
-        uninstall_cmd: &["cargo", "uninstall", "terminal-dino"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "yJump", icon: "^", bin: "yjump", package: "yjump",
-        desc: "Side-scrolling terminal game. Pick a direction, jump to collide with characters on screen. Double-jump and dash to reach them. Only key presses count — timing is everything.",
-        keys: "Arrows/WASD move, Up jump, Up again double-jump, double-tap L/R dash, Down stop", category: "Action", runtime: "cargo",
-        engine: "crossterm", repo: "https://crates.io/crates/yjump",
-        install_cmd: &["cargo", "install", "yjump"],
-        uninstall_cmd: &["cargo", "uninstall", "yjump"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Chess TUI", icon: "K", bin: "chess-tui", package: "chess-tui",
-        desc: "Full chess in the terminal. Play vs a friend locally, against a UCI engine (Stockfish), or online via Lichess. Supports multiple board skins.",
-        keys: "Arrows/hjkl move cursor, Space select/place, ? help, s cycle skins, q quit", category: "Strategy", runtime: "cargo",
-        engine: "ratatui", repo: "https://crates.io/crates/chess-tui",
-        install_cmd: &["cargo", "install", "chess-tui"],
-        uninstall_cmd: &["cargo", "uninstall", "chess-tui"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Kingslayer", icon: "Q", bin: "kingslayer", package: "kingslayer",
-        desc: "Classic text adventure. Type natural language commands to explore a dungeon, pick up items, solve puzzles, and fight. Try 'look', 'go north', 'take key', 'open door'.",
-        keys: "Type commands: look, go [dir], take [item], use [item], attack", category: "RPG", runtime: "cargo",
-        engine: "stdio", repo: "https://crates.io/crates/kingslayer",
-        install_cmd: &["cargo", "install", "kingslayer"],
-        uninstall_cmd: &["cargo", "uninstall", "kingslayer"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Dungeon CLI", icon: "D", bin: "dungeoncli", package: "dungeoncli",
-        desc: "Explore a randomly generated dungeon. Fight monsters in turn-based combat, collect loot, and level up your character. Choose actions from numbered menus each turn.",
-        keys: "Type a number to pick an action, Enter to confirm", category: "RPG", runtime: "cargo",
-        engine: "stdio", repo: "https://crates.io/crates/dungeoncli",
-        install_cmd: &["cargo", "install", "dungeoncli"],
-        uninstall_cmd: &["cargo", "uninstall", "dungeoncli"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "RecWars", icon: "W", bin: "rec-wars", package: "rec-wars",
-        desc: "Top-down tank deathmatch. Drive tanks, hovercraft, or hummers and blast opponents with 8 weapons. Free-for-all, team war, or capture the cow. Graphical window.",
-        keys: "Arrows drive, Ctrl fire, ; or ` console, Tab switch weapon",
-        category: "Action", runtime: "cargo",
-        engine: "macroquad", repo: "https://crates.io/crates/rec-wars",
-        install_cmd: &["cargo", "install", "rec-wars"],
-        uninstall_cmd: &["cargo", "uninstall", "rec-wars"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Pyxel Shooter", icon: "!", bin: "pyxel", package: "pyxel",
-        desc: "Retro space shooter with pixel graphics. Dodge enemy fire, shoot down waves of enemies, collect power-ups. Classic arcade action with 8-bit sound.",
-        keys: "Arrow keys move ship, Space shoot",
-        category: "Action", runtime: "python",
-        engine: "pyxel", repo: "https://github.com/kitao/pyxel",
-        install_cmd: &["pip", "install", "--user", "pyxel"],
-        uninstall_cmd: &["pip", "uninstall", "-y", "pyxel"],
-        play_cmd: &["python", "-m", "pyxel", "run"],
-    },
-    Game {
-        name: "Pyxel Platformer", icon: "P", bin: "pyxel", package: "pyxel",
-        desc: "Retro pixel platformer. Run and jump through side-scrolling levels, avoid hazards, collect items. Classic 8-bit style with chiptune music.",
-        keys: "Arrow keys move, Space/Up jump",
-        category: "Action", runtime: "python",
-        engine: "pyxel", repo: "https://github.com/kitao/pyxel",
-        install_cmd: &["pip", "install", "--user", "pyxel"],
-        uninstall_cmd: &["pip", "uninstall", "-y", "pyxel"],
-        play_cmd: &["python", "-m", "pyxel", "run"],
-    },
-    Game {
-        name: "Mega Wing", icon: "M", bin: "pyxel", package: "pyxel",
-        desc: "Side-scrolling shoot-em-up. Pilot your ship through waves of enemies, dodge bullets, grab power-ups. Boss fights at the end of each stage.",
-        keys: "Arrow keys move, Z shoot, X bomb",
-        category: "Action", runtime: "python",
-        engine: "pyxel", repo: "https://github.com/kitao/pyxel",
-        install_cmd: &["pip", "install", "--user", "pyxel"],
-        uninstall_cmd: &["pip", "uninstall", "-y", "pyxel"],
-        play_cmd: &["python", "-m", "pyxel", "play"],
-    },
-    Game {
-        name: "Laser Jetman", icon: "J", bin: "pyxel", package: "pyxel",
-        desc: "Jetpack shooter. Fly through caverns with a jetpack, blast enemies with your laser, collect fuel. Retro pixel art action.",
-        keys: "Arrow keys move, Z jetpack, X shoot",
-        category: "Action", runtime: "python",
-        engine: "pyxel", repo: "https://github.com/kitao/pyxel",
-        install_cmd: &["pip", "install", "--user", "pyxel"],
-        uninstall_cmd: &["pip", "uninstall", "-y", "pyxel"],
-        play_cmd: &["python", "-m", "pyxel", "play"],
-    },
-    Game {
-        name: "Space Invaders", icon: "V", bin: "space_invaders", package: "raylib-games",
-        desc: "Classic Space Invaders in a graphical window. Shoot descending waves of aliens before they reach the bottom. Built with raylib — pure C, zero dependencies.",
-        keys: "Left/Right move, Space shoot",
-        category: "Action", runtime: "cmake",
-        engine: "raylib", repo: "https://github.com/raysan5/raylib-games",
-        install_cmd: &["cmake-game", "space_invaders", "classics/src/space_invaders.c"],
-        uninstall_cmd: &["cmake-game-remove", "space_invaders"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Asteroids", icon: "A", bin: "asteroids", package: "raylib-games",
-        desc: "Classic Asteroids in a graphical window. Pilot a ship, rotate and thrust to dodge, shoot to break asteroids into smaller pieces. Built with raylib — pure C.",
-        keys: "Left/Right rotate, Up thrust, Space shoot",
-        category: "Action", runtime: "cmake",
-        engine: "raylib", repo: "https://github.com/raysan5/raylib-games",
-        install_cmd: &["cmake-game", "asteroids", "classics/src/asteroids.c"],
-        uninstall_cmd: &["cmake-game-remove", "asteroids"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "L1T Lasers", icon: "L", bin: "l1t", package: "l1t",
-        desc: "Laser combat puzzle. Aim and shoot lasers to light up statues on the grid. Reflect beams off walls and obstacles. Each level gets trickier.",
-        keys: "Arrows move, Space shoot laser, R reset level",
-        category: "Action", runtime: "cargo",
-        engine: "crossterm", repo: "https://crates.io/crates/l1t",
-        install_cmd: &["cargo", "install", "l1t"],
-        uninstall_cmd: &["cargo", "uninstall", "l1t"],
-        play_cmd: &[],
-    },
-    Game {
-        name: "Taurus", icon: "T", bin: "taurus", package: "taurus",
-        desc: "Classic roguelike. Explore a dungeon, fight monsters in turn-based combat, find items and gear. Permadeath — when you die, you start over. Uses libtcod rendering.",
-        keys: "Arrow keys move, bump to attack, < > stairs",
-        category: "RPG", runtime: "cargo",
-        engine: "libtcod", repo: "https://crates.io/crates/taurus",
-        install_cmd: &["cargo", "install", "taurus"],
-        uninstall_cmd: &["cargo", "uninstall", "taurus"],
-        play_cmd: &[],
-    },
-];
-
-const BANNER: &[&str] = &[
-    r"                                                          ",
-    r"     █████╗ ██████╗  ██████╗ █████╗ ██████╗ ███████╗      ",
-    r"    ██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝      ",
-    r"    ███████║██████╔╝██║     ███████║██║  ██║█████╗        ",
-    r"    ██╔══██║██╔══██╗██║     ██╔══██║██║  ██║██╔══╝        ",
-    r"    ██║  ██║██║  ██║╚██████╗██║  ██║██████╔╝███████╗      ",
-    r"    ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═════╝ ╚══════╝      ",
-];
-
-const SUB_BANNER: &str = "- - - T E R M I N A L  *  G A M E  *  L A U N C H E R - - -";
-
-
-// === HIGH SCORES ===
-
-#[derive(Serialize, Deserialize, Default)]
-struct ScoreStore {
-    scores: HashMap<String, Vec<ScoreEntry>>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct ScoreEntry {
-    score: u64,
-    date: String,
-}
-
-fn scores_path() -> PathBuf {
-    let mut p = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-    p.push("arcade-launcher");
-    let _ = std::fs::create_dir_all(&p);
-    p.push("scores.json");
-    p
-}
-
-fn load_scores() -> ScoreStore {
-    let path = scores_path();
-    std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
-}
-
-fn save_scores(store: &ScoreStore) {
-    let path = scores_path();
-    if let Ok(json) = serde_json::to_string_pretty(store) {
-        let _ = std::fs::write(path, json);
-    }
-}
-
-fn add_score(store: &mut ScoreStore, game: &str, score: u64) {
-    let now = chrono_lite_now();
-    let entry = ScoreEntry {
-        score,
-        date: now,
-    };
-    let entries = store.scores.entry(game.to_string()).or_default();
-    entries.push(entry);
-    entries.sort_by(|a, b| b.score.cmp(&a.score));
-    entries.truncate(5); // keep top 5
-    save_scores(store);
-}
-
-fn chrono_lite_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    // Convert epoch seconds to YYYY-MM-DD HH:MM (UTC)
-    let days = secs / 86400;
-    let time_of_day = secs % 86400;
-    let hours = time_of_day / 3600;
-    let minutes = (time_of_day % 3600) / 60;
-    // Days since 1970-01-01
-    let mut y = 1970i64;
-    let mut remaining = days as i64;
-    loop {
-        let year_days = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) { 366 } else { 365 };
-        if remaining < year_days { break; }
-        remaining -= year_days;
-        y += 1;
-    }
-    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
-    let month_days = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let mut m = 0;
-    for &md in &month_days {
-        if remaining < md as i64 { break; }
-        remaining -= md as i64;
-        m += 1;
-    }
-    format!("{:04}-{:02}-{:02} {:02}:{:02}", y, m + 1, remaining + 1, hours, minutes)
-}
-
-fn top_score(store: &ScoreStore, game: &str) -> Option<u64> {
-    store
-        .scores
-        .get(game)
-        .and_then(|entries| entries.first())
-        .map(|e| e.score)
-}
-
-// === APP STATE ===
-
-enum Mode {
-    Normal,
-    ScoreInput { buffer: String },
-    ViewLog { scroll: u16 },
-    Installing {
-        lines: Arc<Mutex<Vec<String>>>,
-        done: Arc<Mutex<Option<bool>>>,
-        scroll: u16,
-    },
-}
-
-struct Toolchains {
-    cargo: bool,
-    java: bool,
-    python: bool,
-    cmake: bool,
-}
-
-impl Toolchains {
-    fn detect() -> Self {
-        Self {
-            cargo: which("cargo"),
-            java: which("java"),
-            python: which("python") || which("python3"),
-            cmake: which("cmake") && which("git") && (which("cl") || which("gcc") || which("cc") || which("clang")),
-        }
-    }
-}
-
-struct App {
-    list_state: ListState,
-    installed: Vec<bool>,
-    sizes: Vec<Option<u64>>,
-    should_quit: bool,
-    message: Option<(String, bool)>,
-    tick: u64,
-    scores: ScoreStore,
-    mode: Mode,
-    toolchains: Toolchains,
-    last_log: Option<String>,
-}
-
-fn check_pyxel_installed() -> bool {
-    Command::new("python")
-        .args(["-c", "import pyxel"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-fn compute_installed() -> Vec<bool> {
-    let pyxel_ok = check_pyxel_installed();
-    GAMES.iter().map(|g| {
-        if g.runtime == "python" && !g.play_cmd.is_empty() {
-            pyxel_ok
-        } else if g.runtime == "cmake" {
-            cmake_game_exe(g).is_file()
-        } else {
-            which(g.bin)
-        }
-    }).collect()
-}
-
-fn compute_sizes(installed: &[bool]) -> Vec<Option<u64>> {
-    GAMES.iter().zip(installed.iter()).map(|(g, &inst)| {
-        if inst { install_size(g) } else { None }
-    }).collect()
-}
-
-impl App {
-    fn new() -> Self {
-        let installed = compute_installed();
-        let sizes = compute_sizes(&installed);
-        let mut list_state = ListState::default();
-        list_state.select(Some(0));
-        let toolchains = Toolchains::detect();
-        let message = if !toolchains.cargo {
-            Some(("cargo not found! Install Rust to manage games.".to_string(), false))
-        } else {
-            None
-        };
-        Self {
-            list_state,
-            installed,
-            sizes,
-            should_quit: false,
-            message,
-            tick: 0,
-            scores: load_scores(),
-            mode: Mode::Normal,
-            toolchains,
-            last_log: None,
-        }
-    }
-
-    fn selected(&self) -> usize {
-        self.list_state.selected().unwrap_or(0)
-    }
-
-    fn next(&mut self) {
-        let i = (self.selected() + 1) % GAMES.len();
-        self.list_state.select(Some(i));
-        self.message = None;
-    }
-
-    fn prev(&mut self) {
-        let i = if self.selected() == 0 {
-            GAMES.len() - 1
-        } else {
-            self.selected() - 1
-        };
-        self.list_state.select(Some(i));
-        self.message = None;
-    }
-
-    fn refresh(&mut self) {
-        self.installed = compute_installed();
-        self.sizes = compute_sizes(&self.installed);
-        self.toolchains = Toolchains::detect();
-    }
-}
-
-fn which(bin: &str) -> bool {
-    bin_path(bin).is_some()
-}
-
-fn has_runtime(toolchains: &Toolchains, game: &Game) -> bool {
-    match game.runtime {
-        "cargo" => toolchains.cargo,
-        "python" | "pip" => toolchains.python,
-        "java" => toolchains.java,
-        "cmake" => toolchains.cmake,
-        _ => true,
-    }
-}
-
-fn runtime_install_hint(game: &Game) -> &'static str {
-    match game.runtime {
-        "cargo" => "Install Rust: https://rustup.rs",
-        "python" | "pip" => "Install Python: https://python.org/downloads",
-        "java" => "Install Java: https://adoptium.net",
-        "cmake" => "Need: cmake (cmake.org), git (git-scm.com), C compiler (gcc/MSVC)",
-        _ => "Unknown runtime",
-    }
-}
-
-fn games_dir() -> PathBuf {
-    let mut p = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-    p.push("arcade-launcher");
-    p.push("games");
-    let _ = std::fs::create_dir_all(&p);
-    p
-}
-
-fn cmake_game_exe(game: &Game) -> PathBuf {
-    let mut p = games_dir();
-    p.push(game.bin);
-    p.push("build");
-    p.push("Release");
-    p.push(format!("{}.exe", game.bin));
-    p
-}
-
-fn bin_path(bin: &str) -> Option<PathBuf> {
-    std::env::var_os("PATH").and_then(|paths| {
-        std::env::split_paths(&paths).find_map(|dir| {
-            let full = dir.join(bin);
-            for candidate in [full.clone(), full.with_extension("exe"), full.with_extension("cmd")] {
-                if candidate.is_file() {
-                    return Some(candidate);
-                }
-            }
-            None
-        })
-    })
-}
-
-fn install_size(game: &Game) -> Option<u64> {
-    // Python module games: size isn't meaningful via bin_path
-    if game.runtime == "python" && !game.play_cmd.is_empty() {
-        return None;
-    }
-    // cmake games: measure the whole build directory
-    if game.runtime == "cmake" {
-        let mut dir = games_dir();
-        dir.push(game.bin);
-        if dir.is_dir() {
-            return Some(dir_size_recursive(&dir));
-        }
-        return None;
-    }
-    // Check for a game directory next to the binary first (non-cargo games with assets)
-    if let Some(p) = bin_path(game.bin) {
-        let game_dir = p.parent().and_then(|parent| {
-            let dir = parent.join(game.bin);
-            if dir.is_dir() { Some(dir) } else { None }
-        });
-        if let Some(dir) = game_dir {
-            let dir_size = dir_size_recursive(&dir);
-            let bin_bytes = std::fs::metadata(&p).ok().map(|m| m.len()).unwrap_or(0);
-            return Some(dir_size + bin_bytes);
-        }
-        // Cargo games: binary is the whole install
-        return std::fs::metadata(&p).ok().map(|m| m.len());
-    }
-    None
-}
-
-fn dir_size_recursive(path: &std::path::Path) -> u64 {
-    let mut total = 0;
-    if let Ok(entries) = std::fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let meta = entry.metadata();
-            if let Ok(meta) = meta {
-                if meta.is_dir() {
-                    total += dir_size_recursive(&entry.path());
-                } else {
-                    total += meta.len();
-                }
-            }
-        }
-    }
-    total
-}
-
-fn format_size(bytes: u64) -> String {
-    if bytes >= 1_048_576 {
-        format!("{:.1} MB", bytes as f64 / 1_048_576.0)
-    } else if bytes >= 1024 {
-        format!("{:.0} KB", bytes as f64 / 1024.0)
-    } else {
-        format!("{} B", bytes)
-    }
-}
-
-const CMAKE_TEMPLATE: &str = "\
-cmake_minimum_required(VERSION 3.14)\n\
-project({name} C)\n\
-include(FetchContent)\n\
-FetchContent_Declare(raylib GIT_REPOSITORY https://github.com/raysan5/raylib.git GIT_TAG 5.5 GIT_SHALLOW TRUE)\n\
-FetchContent_MakeAvailable(raylib)\n\
-add_executable({name} {name}.c)\n\
-target_link_libraries({name} raylib)\n\
-if(WIN32)\n\
-  target_link_libraries({name} winmm)\n\
-endif()\n";
-
-fn run_step(
-    cmd: &str,
-    args: &[&str],
-    cwd: &std::path::Path,
-    lines: &Arc<Mutex<Vec<String>>>,
-) -> bool {
-    lines.lock().unwrap().push(format!("$ {} {}", cmd, args.join(" ")));
-    let result = Command::new(cmd)
-        .args(args)
-        .current_dir(cwd)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
-    match result {
-        Ok(mut child) => {
-            let stderr = child.stderr.take();
-            let stdout = child.stdout.take();
-            let l2 = Arc::clone(lines);
-            let t1 = thread::spawn(move || {
-                if let Some(s) = stderr {
-                    for line in BufReader::new(s).lines().flatten() {
-                        l2.lock().unwrap().push(line);
-                    }
-                }
-            });
-            let l3 = Arc::clone(lines);
-            let t2 = thread::spawn(move || {
-                if let Some(s) = stdout {
-                    for line in BufReader::new(s).lines().flatten() {
-                        l3.lock().unwrap().push(line);
-                    }
-                }
-            });
-            let _ = t1.join();
-            let _ = t2.join();
-            child.wait().map(|s| s.success()).unwrap_or(false)
-        }
-        Err(e) => {
-            lines.lock().unwrap().push(format!("Error: {}", e));
-            false
-        }
-    }
-}
-
-fn ensure_raylib_games_repo(lines: &Arc<Mutex<Vec<String>>>) -> Option<PathBuf> {
-    let repo_dir = games_dir().join("raylib-games");
-    if repo_dir.join(".git").is_dir() {
-        lines.lock().unwrap().push("Source repo already cloned.".to_string());
-        return Some(repo_dir);
-    }
-    lines.lock().unwrap().push("Cloning raylib-games repo (shallow)...".to_string());
-    let parent = games_dir();
-    if run_step("git", &["clone", "--depth", "1", "https://github.com/raysan5/raylib-games.git"], &parent, lines) {
-        Some(repo_dir)
-    } else {
-        None
-    }
-}
-
-fn run_cmake_install(
-    cmd_parts: &[String],
-    lines: &Arc<Mutex<Vec<String>>>,
-    done: &Arc<Mutex<Option<bool>>>,
-) {
-    // cmd_parts: ["cmake-game", "game_name", "repo_relative_path"]
-    let name = &cmd_parts[1];
-    let src_rel = &cmd_parts[2]; // e.g. "classics/src/space_invaders.c"
-
-    let mut game_dir = games_dir();
-    game_dir.push(name);
-    let _ = std::fs::create_dir_all(&game_dir);
-
-    // Clone the shared repo if needed
-    let repo_dir = match ensure_raylib_games_repo(lines) {
-        Some(d) => d,
-        None => {
-            lines.lock().unwrap().push("Failed to clone source repo!".to_string());
-            *done.lock().unwrap() = Some(false);
-            return;
-        }
-    };
-
-    // Copy source file from repo
-    let src_file = repo_dir.join(src_rel);
-    let dest_file = game_dir.join(format!("{}.c", name));
-    lines.lock().unwrap().push(format!("Copying {} ...", src_rel));
-    if let Err(e) = std::fs::copy(&src_file, &dest_file) {
-        lines.lock().unwrap().push(format!("Failed to copy source: {}", e));
-        *done.lock().unwrap() = Some(false);
-        return;
-    }
-
-    // Write CMakeLists.txt
-    let cmake_content = CMAKE_TEMPLATE.replace("{name}", name);
-    let cmake_path = game_dir.join("CMakeLists.txt");
-    if std::fs::write(&cmake_path, &cmake_content).is_err() {
-        lines.lock().unwrap().push("Failed to write CMakeLists.txt".to_string());
-        *done.lock().unwrap() = Some(false);
-        return;
-    }
-    lines.lock().unwrap().push("Wrote CMakeLists.txt".to_string());
-
-    // cmake configure
-    lines.lock().unwrap().push(String::new());
-    lines.lock().unwrap().push("Configuring cmake (fetching raylib)...".to_string());
-    if !run_step("cmake", &["-B", "build", "-DCMAKE_BUILD_TYPE=Release"], &game_dir, lines) {
-        lines.lock().unwrap().push("cmake configure failed!".to_string());
-        *done.lock().unwrap() = Some(false);
-        return;
-    }
-
-    // cmake build
-    lines.lock().unwrap().push(String::new());
-    lines.lock().unwrap().push("Building...".to_string());
-    let ok = run_step("cmake", &["--build", "build", "--config", "Release"], &game_dir, lines);
-    *done.lock().unwrap() = Some(ok);
-}
-
-fn run_cmake_remove(
-    cmd_parts: &[String],
-    lines: &Arc<Mutex<Vec<String>>>,
-    done: &Arc<Mutex<Option<bool>>>,
-) {
-    let name = &cmd_parts[1];
-    let mut game_dir = games_dir();
-    game_dir.push(name);
-    lines.lock().unwrap().push(format!("Removing {} ...", game_dir.display()));
-    match std::fs::remove_dir_all(&game_dir) {
-        Ok(_) => {
-            lines.lock().unwrap().push("Removed!".to_string());
-            *done.lock().unwrap() = Some(true);
-        }
-        Err(e) => {
-            lines.lock().unwrap().push(format!("Error: {}", e));
-            *done.lock().unwrap() = Some(false);
-        }
-    }
-}
-
-fn run_shell_install(
-    cmd_parts: &[String],
-    lines: &Arc<Mutex<Vec<String>>>,
-    done: &Arc<Mutex<Option<bool>>>,
-) {
-    let result = Command::new(&cmd_parts[0])
-        .args(&cmd_parts[1..])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
-    match result {
-        Ok(mut child) => {
-            let stderr = child.stderr.take();
-            let stdout = child.stdout.take();
-            let l2 = Arc::clone(lines);
-            let t1 = thread::spawn(move || {
-                if let Some(s) = stderr {
-                    for line in BufReader::new(s).lines().flatten() {
-                        l2.lock().unwrap().push(line);
-                    }
-                }
-            });
-            let l3 = Arc::clone(lines);
-            let t2 = thread::spawn(move || {
-                if let Some(s) = stdout {
-                    for line in BufReader::new(s).lines().flatten() {
-                        l3.lock().unwrap().push(line);
-                    }
-                }
-            });
-            let _ = t1.join();
-            let _ = t2.join();
-            let ok = child.wait().map(|s| s.success()).unwrap_or(false);
-            *done.lock().unwrap() = Some(ok);
-        }
-        Err(e) => {
-            lines.lock().unwrap().push(format!("Error: {}", e));
-            *done.lock().unwrap() = Some(false);
-        }
-    }
-}
-
-fn pyxel_script_path(game: &Game) -> Option<String> {
-    // Find pyxel examples directory
-    let output = Command::new("python")
-        .args(["-c", "import pyxel, os; print(os.path.dirname(pyxel.__file__))"])
-        .output()
-        .ok()?;
-    let pyxel_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if pyxel_dir.is_empty() { return None; }
-
-    let examples = format!("{}/examples", pyxel_dir);
-    let apps = format!("{}/examples/apps", pyxel_dir);
-
-    match game.name {
-        "Pyxel Shooter" => Some(format!("{}/09_shooter.py", examples)),
-        "Pyxel Platformer" => Some(format!("{}/10_platformer.py", examples)),
-        "Mega Wing" => Some(format!("{}/mega_wing.pyxapp", apps)),
-        "Laser Jetman" => Some(format!("{}/laser-jetman.pyxapp", apps)),
-        _ => None,
-    }
-}
+use app::{App, Mode};
+use catalog::GAMES;
+use install::{check_and_install_deps, kill_game_process, kill_pid, run_captured, run_cmake_install, run_dir_remove, run_git_install, run_shell_install};
+use util::{has_runtime, runtime_install_hint};
 
 fn run_visible(
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
     cmd: &str,
     args: &[&str],
+    cwd: Option<&std::path::Path>,
 ) -> io::Result<(Terminal<CrosstermBackend<io::Stdout>>, bool)> {
     disable_raw_mode()?;
     execute!(
@@ -858,7 +39,12 @@ fn run_visible(
     )?;
     drop(terminal);
 
-    let status = Command::new(cmd).args(args).status();
+    let mut command = Command::new(cmd);
+    command.args(args);
+    if let Some(dir) = cwd {
+        command.current_dir(dir);
+    }
+    let status = command.status();
 
     let _ = disable_raw_mode();
     let _ = execute!(io::stdout(), LeaveAlternateScreen);
@@ -872,8 +58,13 @@ fn run_visible(
 
     enable_raw_mode()?;
     execute!(io::stdout(), EnterAlternateScreen, cursor::Hide)?;
-    let mut term = Terminal::new(CrosstermBackend::new(io::stdout()))?;
+    let stdout = io::stdout();
+    let backend = CrosstermBackend::new(stdout);
+    let mut term = Terminal::new(backend)?;
+    // Force full redraw — clear + resize resets ratatui's diff state
     term.clear()?;
+    let size = term.size()?;
+    term.resize(size)?;
 
     let ok = status.map(|s| s.success()).unwrap_or(false);
     Ok((term, ok))
@@ -887,20 +78,26 @@ fn main() -> io::Result<()> {
     let mut app = App::new();
 
     while !app.should_quit {
-        // Auto-scroll install panel to follow output
-        if let Mode::Installing { ref lines, ref done, ref mut scroll } = app.mode {
+        // Auto-scroll install panel
+        if let Mode::Installing {
+            ref lines,
+            ref done,
+            ref mut scroll,
+            ..
+        } = app.mode
+        {
             let line_count = lines.lock().unwrap().len() as u16;
-            // Panel height is roughly: main_area height - 2 (borders)
-            // main_area = total height - 11 (banner) - 3 (footer)
-            let panel_height = terminal.size().map(|s| s.height.saturating_sub(16)).unwrap_or(10);
+            let panel_height = terminal
+                .size()
+                .map(|s| s.height.saturating_sub(16))
+                .unwrap_or(10);
             *scroll = line_count.saturating_sub(panel_height);
-            // Save log when done
             if let Some(_ok) = *done.lock().unwrap() {
                 app.last_log = Some(lines.lock().unwrap().join("\n"));
             }
         }
 
-        terminal.draw(|f| ui(f, &mut app))?;
+        terminal.draw(|f| ui::ui(f, &mut app))?;
         app.tick = app.tick.wrapping_add(1);
 
         if event::poll(std::time::Duration::from_millis(100))? {
@@ -910,33 +107,42 @@ fn main() -> io::Result<()> {
                 }
 
                 match &mut app.mode {
-                    Mode::Installing { done, scroll, .. } => {
-                        match key.code {
-                            KeyCode::Down | KeyCode::Char('j') => {
-                                *scroll = scroll.saturating_add(1);
-                            }
-                            KeyCode::Up | KeyCode::Char('k') => {
-                                *scroll = scroll.saturating_sub(1);
-                            }
-                            KeyCode::Esc | KeyCode::Char('q') => {
-                                // Only allow exit if done
-                                let done_val = *done.lock().unwrap();
-                                if done_val.is_some() {
-                                    let ok = done_val.unwrap_or(false);
-                                    app.refresh();
-                                    let idx = app.selected();
-                                    let msg = if ok {
-                                        format!("{} done!", GAMES[idx].name)
-                                    } else {
-                                        format!("{} failed. Press [l] for log.", GAMES[idx].name)
-                                    };
-                                    app.message = Some((msg, ok));
-                                    app.mode = Mode::Normal;
-                                }
-                            }
-                            _ => {}
+                    Mode::Installing { done, scroll, label, pid, .. } => match key.code {
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            *scroll = scroll.saturating_add(1);
                         }
-                    }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            *scroll = scroll.saturating_sub(1);
+                        }
+                        KeyCode::Esc | KeyCode::Char('q') => {
+                            let done_val = *done.lock().unwrap();
+                            if done_val.is_some() {
+                                let ok = done_val.unwrap_or(false);
+                                app.refresh();
+                                let idx = app.selected();
+                                let msg = if ok {
+                                    format!("{} done!", GAMES[idx].name)
+                                } else {
+                                    format!(
+                                        "{} failed. Press [l] for log.",
+                                        GAMES[idx].name
+                                    )
+                                };
+                                app.message = Some((msg, ok));
+                                app.mode = Mode::Normal;
+                            } else if *label == "RUNNING" {
+                                // Kill the running game process
+                                if let Some(p) = *pid.lock().unwrap() {
+                                    kill_pid(p);
+                                }
+                                app.refresh();
+                                app.mode = Mode::Normal;
+                                app.message = None;
+                            }
+                        }
+                        _ => {}
+                    },
+
                     Mode::ViewLog { scroll } => match key.code {
                         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('l') => {
                             app.mode = Mode::Normal;
@@ -955,35 +161,7 @@ fn main() -> io::Result<()> {
                         }
                         _ => {}
                     },
-                    Mode::ScoreInput { buffer } => match key.code {
-                        KeyCode::Enter => {
-                            if let Ok(score) = buffer.parse::<u64>() {
-                                let game_name = GAMES[app.selected()].name;
-                                add_score(&mut app.scores, game_name, score);
-                                app.message = Some((
-                                    format!("Score {} saved!", score),
-                                    true,
-                                ));
-                            } else if !buffer.is_empty() {
-                                app.message =
-                                    Some(("Invalid number".to_string(), false));
-                            }
-                            app.mode = Mode::Normal;
-                        }
-                        KeyCode::Esc => {
-                            app.mode = Mode::Normal;
-                            app.message = Some(("Score skipped".to_string(), true));
-                        }
-                        KeyCode::Backspace => {
-                            buffer.pop();
-                        }
-                        KeyCode::Char(c) if c.is_ascii_digit() => {
-                            if buffer.len() < 12 {
-                                buffer.push(c);
-                            }
-                        }
-                        _ => {}
-                    },
+
                     Mode::Normal => match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
                         KeyCode::Down | KeyCode::Char('j') => app.next(),
@@ -991,107 +169,218 @@ fn main() -> io::Result<()> {
 
                         KeyCode::Enter => {
                             let idx = app.selected();
-                            if !app.installed[idx] {
+                            let game = &GAMES[idx];
+                            if util::is_git_cloned_not_ready(game) {
                                 app.message = Some((
-                                    "Not installed! Press [i] to install".to_string(),
+                                    "Cloned but not built. Press [i] to build.".to_string(),
                                     false,
                                 ));
-                            } else {
-                                let game = &GAMES[idx];
-                                if game.runtime == "cmake" {
-                                    let exe = cmake_game_exe(game);
-                                    let exe_str = exe.to_string_lossy().to_string();
-                                    let (t, _ok) = run_visible(terminal, &exe_str, &[])?;
+                            } else if !app.installed[idx] {
+                                app.message = Some((
+                                    "Not installed. Press [i] to install.".to_string(),
+                                    false,
+                                ));
+                            } else if let Some(src) = catalog::default_source(game) {
+                                // Terminal games (crossterm/ratatui) need the full terminal
+                                let is_terminal_game = matches!(game.engine, "crossterm" | "ratatui");
+
+                                if is_terminal_game {
+                                    let (t, ok) = if !src.play_cmd.is_empty() {
+                                        let cmd = src.play_cmd[0];
+                                        let args: Vec<&str> = src.play_cmd[1..].to_vec();
+                                        run_visible(terminal, cmd, &args, None)?
+                                    } else {
+                                        run_visible(terminal, src.bin, &[], None)?
+                                    };
                                     terminal = t;
-                                } else if !game.play_cmd.is_empty() {
-                                    // Custom play command (e.g. pyxel games)
-                                    let script = pyxel_script_path(game);
-                                    let cmd = game.play_cmd[0];
-                                    let mut args: Vec<&str> = game.play_cmd[1..].to_vec();
-                                    if let Some(ref s) = script {
-                                        args.push(s);
+                                    if !ok {
+                                        app.message = Some((
+                                            format!("{} exited with error", game.name),
+                                            false,
+                                        ));
+                                    } else {
+                                        app.message = None;
                                     }
-                                    let (t, _ok) = run_visible(terminal, cmd, &args)?;
-                                    terminal = t;
                                 } else {
-                                    let (t, _ok) = run_visible(terminal, game.bin, &[])?;
-                                    terminal = t;
+                                    // Non-terminal games: capture output in a panel
+                                    let (cmd_parts, cwd): (Vec<String>, Option<std::path::PathBuf>) = match src.method {
+                                        "cmake" => {
+                                            let exe = util::cmake_game_exe(src);
+                                            (vec![exe.to_string_lossy().to_string()], None)
+                                        }
+                                        "git" | "binary" => {
+                                            let game_dir = util::games_dir().join(src.clone_dir);
+                                            let parts: Vec<String> = src.play_cmd.iter().map(|s| s.to_string()).collect();
+                                            (parts, Some(game_dir))
+                                        }
+                                        _ if !src.play_cmd.is_empty() => {
+                                            let parts: Vec<String> = src.play_cmd.iter().map(|s| s.to_string()).collect();
+                                            (parts, None)
+                                        }
+                                        _ => {
+                                            (vec![src.bin.to_string()], None)
+                                        }
+                                    };
+
+                                    let lines = Arc::new(Mutex::new(vec![
+                                        format!("$ {}", cmd_parts.join(" ")),
+                                        String::new(),
+                                    ]));
+                                    let done = Arc::new(Mutex::new(None));
+                                    let pid = Arc::new(Mutex::new(None));
+
+                                    let lines_clone = Arc::clone(&lines);
+                                    let done_clone = Arc::clone(&done);
+                                    let pid_clone = Arc::clone(&pid);
+
+                                    thread::spawn(move || {
+                                        run_captured(&cmd_parts, cwd, &lines_clone, &done_clone, &pid_clone);
+                                    });
+
+                                    app.mode = Mode::Installing {
+                                        lines,
+                                        done,
+                                        scroll: 0,
+                                        label: "RUNNING",
+                                        pid,
+                                    };
+                                    app.message = None;
                                 }
-                                // Prompt for score after game
-                                app.mode = Mode::ScoreInput {
-                                    buffer: String::new(),
-                                };
-                                app.message = None;
                             }
                         }
 
                         KeyCode::Char('i') | KeyCode::Char('d') => {
                             let idx = app.selected();
                             let installing = key.code == KeyCode::Char('i');
-                            let already = if installing { app.installed[idx] } else { !app.installed[idx] };
-                            if already {
+                            let already = if installing {
+                                app.installed[idx]
+                            } else {
+                                !app.installed[idx]
+                            };
+                            let source = catalog::default_source(&GAMES[idx]);
+                            if installing && !crate::catalog::game_supports_platform(&GAMES[idx]) {
+                                app.message = Some((
+                                    format!(
+                                        "{} not supported on {}",
+                                        GAMES[idx].name,
+                                        crate::catalog::current_platform()
+                                    ),
+                                    false,
+                                ));
+                            } else if source.is_none() {
+                                app.message = Some((
+                                    format!("{} has no install source", GAMES[idx].name),
+                                    false,
+                                ));
+                            } else if already {
                                 let msg = if installing {
                                     format!("{} already installed!", GAMES[idx].name)
                                 } else {
                                     format!("{} not installed", GAMES[idx].name)
                                 };
                                 app.message = Some((msg, installing));
-                            } else if installing && !has_runtime(&app.toolchains, &GAMES[idx]) {
-                                let hint = runtime_install_hint(&GAMES[idx]);
+                            } else if installing
+                                && !has_runtime(&app.toolchains, source.unwrap().method)
+                            {
+                                let src = source.unwrap();
+                                let hint = runtime_install_hint(src.method);
                                 app.message = Some((
-                                    format!("Missing {}! {}", GAMES[idx].runtime, hint),
+                                    format!(
+                                        "Missing {}! {}",
+                                        src.method, hint
+                                    ),
                                     false,
                                 ));
                             } else {
+                                let src = source.unwrap();
                                 let cmd_parts: Vec<String> = if installing {
-                                    GAMES[idx].install_cmd
+                                    catalog::source_install_cmd(src)
+                                        .iter().map(|s| s.to_string()).collect()
                                 } else {
-                                    GAMES[idx].uninstall_cmd
-                                }.iter().map(|s| s.to_string()).collect();
+                                    src.uninstall_cmd
+                                        .iter().map(|s| s.to_string()).collect()
+                                };
+                                if cmd_parts.is_empty() {
+                                    app.message = Some((
+                                        format!("{} method not yet supported", src.method),
+                                        false,
+                                    ));
+                                    continue;
+                                }
+
+                                // Install platform deps visibly (user sees full terminal output)
+                                if installing {
+                                    if let Some(deps) = catalog::platform_deps_for_current(&GAMES[idx]) {
+                                        if !deps.install_cmd.is_empty()
+                                            && !util::deps_check_satisfied(deps)
+                                        {
+                                            let args: Vec<&str> = deps.install_cmd[1..].to_vec();
+                                            let (t, ok) = run_visible(
+                                                terminal, deps.install_cmd[0], &args, None,
+                                            )?;
+                                            terminal = t;
+                                            if !ok {
+                                                app.message = Some((
+                                                    "Dep install failed. Press [i] to retry.".to_string(),
+                                                    false,
+                                                ));
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
 
                                 let lines = Arc::new(Mutex::new(vec![
                                     format!("$ {}", cmd_parts.join(" ")),
                                     String::new(),
                                 ]));
                                 let done = Arc::new(Mutex::new(None));
+                                let pid = Arc::new(Mutex::new(None));
 
                                 let lines_clone = Arc::clone(&lines);
                                 let done_clone = Arc::clone(&done);
 
-                                // Kill the game process before uninstall to release file locks
                                 let kill_bin = if !installing {
-                                    Some(GAMES[idx].bin.to_string())
+                                    Some(src.bin.to_string())
                                 } else {
                                     None
                                 };
 
+                                let game_name = GAMES[idx].name.to_string();
+                                let is_install = installing;
+
                                 thread::spawn(move || {
                                     if let Some(ref bin) = kill_bin {
-                                        let _ = if cfg!(windows) {
-                                            Command::new("taskkill")
-                                                .args(["/F", "/IM", &format!("{}.exe", bin)])
-                                                .stdout(Stdio::null())
-                                                .stderr(Stdio::null())
-                                                .status()
-                                        } else {
-                                            Command::new("pkill")
-                                                .args(["-f", bin])
-                                                .stdout(Stdio::null())
-                                                .stderr(Stdio::null())
-                                                .status()
-                                        };
+                                        kill_game_process(bin);
                                     }
 
-                                    if cmd_parts[0] == "cmake-game" {
-                                        run_cmake_install(&cmd_parts, &lines_clone, &done_clone);
-                                    } else if cmd_parts[0] == "cmake-game-remove" {
-                                        run_cmake_remove(&cmd_parts, &lines_clone, &done_clone);
-                                    } else {
-                                        run_shell_install(&cmd_parts, &lines_clone, &done_clone);
+                                    // Check and install platform deps before game install
+                                    if is_install {
+                                        if !check_and_install_deps(&game_name, &lines_clone) {
+                                            lines_clone.lock().unwrap().push(String::new());
+                                            lines_clone.lock().unwrap().push(
+                                                "Continuing anyway — build may fail if deps are missing.".to_string()
+                                            );
+                                        }
+                                        lines_clone.lock().unwrap().push(String::new());
+                                    }
+
+                                    match cmd_parts[0].as_str() {
+                                        "cmake-game" => run_cmake_install(&cmd_parts, &lines_clone, &done_clone),
+                                        "cmake-game-remove" | "git-game-remove" => run_dir_remove(&cmd_parts, &lines_clone, &done_clone),
+                                        "git-game" => run_git_install(&cmd_parts, &lines_clone, &done_clone),
+                                        _ => run_shell_install(&cmd_parts, &lines_clone, &done_clone),
                                     }
                                 });
 
-                                app.mode = Mode::Installing { lines, done, scroll: 0 };
+                                let install_label = if installing { "INSTALLING" } else { "REMOVING" };
+                                app.mode = Mode::Installing {
+                                    lines,
+                                    done,
+                                    scroll: 0,
+                                    label: install_label,
+                                    pid,
+                                };
                                 app.message = None;
                             }
                         }
@@ -1115,536 +404,4 @@ fn main() -> io::Result<()> {
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen, cursor::Show)?;
     Ok(())
-}
-
-fn banner_color(tick: u64, col: u16) -> Color {
-    let hue = ((tick * 3 + col as u64 * 8) % 360) as f64;
-    let (r, g, b) = hsl_to_rgb(hue, 0.7, 0.6);
-    Color::Rgb(r, g, b)
-}
-
-fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u8, u8, u8) {
-    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
-    let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
-    let m = l - c / 2.0;
-    let (r, g, b) = match h as u32 {
-        0..=59 => (c, x, 0.0),
-        60..=119 => (x, c, 0.0),
-        120..=179 => (0.0, c, x),
-        180..=239 => (0.0, x, c),
-        240..=299 => (x, 0.0, c),
-        _ => (c, 0.0, x),
-    };
-    (
-        ((r + m) * 255.0) as u8,
-        ((g + m) * 255.0) as u8,
-        ((b + m) * 255.0) as u8,
-    )
-}
-
-fn panel_block(title: &str, color: Color) -> Block<'_> {
-    Block::default()
-        .title(Line::from(vec![
-            Span::styled(" [ ", Style::default().fg(Color::DarkGray)),
-            Span::styled(title, Style::default().fg(color).add_modifier(Modifier::BOLD)),
-            Span::styled(" ] ", Style::default().fg(Color::DarkGray)),
-        ]))
-        .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
-        .border_style(Style::default().fg(Color::Rgb(60, 60, 100)))
-}
-
-fn detail_row<'a>(label: &'a str, value: &'a str, value_color: Color) -> Line<'a> {
-    Line::from(vec![
-        Span::styled(label, Style::default().fg(Color::Rgb(100, 100, 130))),
-        Span::styled(value, Style::default().fg(value_color)),
-    ])
-}
-
-fn ui(f: &mut Frame, app: &mut App) {
-    let size = f.size();
-
-    let outer = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(11),
-            Constraint::Min(12),
-            Constraint::Length(3),
-        ])
-        .split(size);
-
-    // === BANNER ===
-    let banner_area = outer[0];
-    let mut banner_lines: Vec<Line> = Vec::new();
-
-    let bar_width = banner_area.width.saturating_sub(2) as usize;
-    let top_bar: String = (0..bar_width)
-        .map(|i| {
-            let chars = ['=', '~', '*', '~'];
-            chars[(i + app.tick as usize) % chars.len()]
-        })
-        .collect();
-    banner_lines.push(Line::from(Span::styled(
-        top_bar,
-        Style::default().fg(Color::Rgb(80, 80, 120)),
-    )));
-
-    for line in BANNER {
-        let spans: Vec<Span> = line
-            .chars()
-            .enumerate()
-            .map(|(col, ch)| {
-                let color = if ch == ' ' {
-                    Color::Reset
-                } else {
-                    banner_color(app.tick, col as u16)
-                };
-                Span::styled(ch.to_string(), Style::default().fg(color))
-            })
-            .collect();
-        banner_lines.push(Line::from(spans));
-    }
-
-    banner_lines.push(Line::from(Span::styled(
-        SUB_BANNER,
-        Style::default()
-            .fg(Color::Rgb(180, 180, 220))
-            .add_modifier(Modifier::BOLD),
-    )));
-
-    let banner_widget = Paragraph::new(banner_lines).alignment(Alignment::Center);
-    f.render_widget(banner_widget, banner_area);
-
-    // === MAIN CONTENT ===
-    let main_area = outer[1];
-
-    if let Mode::ViewLog { scroll } = &app.mode {
-        let log_text = app.last_log.as_deref().unwrap_or("(no log)");
-        let lines: Vec<Line> = log_text
-            .lines()
-            .map(|l| Line::from(Span::styled(l, Style::default().fg(Color::Rgb(200, 200, 220)))))
-            .collect();
-        let log_block = panel_block("LOG", Color::Yellow);
-        let log_widget = Paragraph::new(lines)
-            .block(log_block)
-            .scroll((*scroll, 0))
-            .wrap(Wrap { trim: false });
-        f.render_widget(log_widget, main_area);
-
-        // Simplified footer for log view
-        let footer_spans = vec![
-            Span::styled(" j/k", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled(" scroll ", Style::default().fg(Color::DarkGray)),
-            Span::styled("PgUp/PgDn", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled(" page ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Esc", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-            Span::styled(" close", Style::default().fg(Color::DarkGray)),
-        ];
-        let footer_block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Rgb(60, 60, 100)));
-        let footer = Paragraph::new(Line::from(footer_spans)).block(footer_block);
-        f.render_widget(footer, outer[2]);
-        return;
-    }
-    let is_installing = matches!(app.mode, Mode::Installing { .. });
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(if is_installing {
-            vec![
-                Constraint::Length(26),        // game list
-                Constraint::Percentage(40),    // details
-                Constraint::Min(30),           // install output
-            ]
-        } else {
-            vec![
-                Constraint::Length(26),        // game list
-                Constraint::Min(30),           // details
-            ]
-        })
-        .split(main_area);
-
-    // --- Game List ---
-    let items: Vec<ListItem> = GAMES
-        .iter()
-        .enumerate()
-        .map(|(i, g)| {
-            let (dot, dot_color) = if app.installed[i] {
-                ("*", Color::Green)
-            } else {
-                ("-", Color::Rgb(80, 80, 80))
-            };
-            let name_style = if app.installed[i] {
-                Style::default().fg(Color::White)
-            } else {
-                Style::default().fg(Color::Rgb(100, 100, 100))
-            };
-            ListItem::new(Line::from(vec![
-                Span::styled(
-                    format!(" {} ", dot),
-                    Style::default().fg(dot_color),
-                ),
-                Span::styled(
-                    format!("[{}] ", g.icon),
-                    Style::default().fg(Color::Rgb(100, 80, 160)),
-                ),
-                Span::styled(g.name, name_style),
-            ]))
-        })
-        .collect();
-
-    let list_block = panel_block("GAMES", Color::Cyan);
-
-    let list = List::new(items).block(list_block).highlight_style(
-        Style::default()
-            .bg(Color::Rgb(30, 30, 55))
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    );
-    f.render_stateful_widget(list, cols[0], &mut app.list_state);
-
-    // --- Details + Scores Panel ---
-    let idx = app.selected();
-    let game = &GAMES[idx];
-    let installed = app.installed[idx];
-
-    let best = top_score(&app.scores, game.name);
-
-    let (status_text, status_color) = if installed {
-        ("INSTALLED", Color::Green)
-    } else {
-        ("NOT INSTALLED", Color::Red)
-    };
-
-    let runtime_available = match game.runtime {
-        "cargo" => app.toolchains.cargo,
-        "java" => app.toolchains.java,
-        "python" => app.toolchains.python,
-        "cmake" => app.toolchains.cmake,
-        _ => false,
-    };
-
-    let mut details = vec![
-        Line::from(vec![
-            Span::styled(
-                format!("[{}] ", game.icon),
-                Style::default().fg(Color::Rgb(100, 80, 160)),
-            ),
-            Span::styled(
-                game.name,
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("  ", Style::default()),
-            Span::styled(
-                status_text,
-                Style::default().fg(status_color).add_modifier(Modifier::BOLD),
-            ),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("  ", Style::default()),
-            Span::styled(
-                game.desc,
-                Style::default().fg(Color::Rgb(200, 200, 220)),
-            ),
-        ]),
-        Line::from(""),
-        detail_row("  Type:    ", game.category, Color::Yellow),
-        detail_row("  Keys:    ", game.keys, Color::Rgb(220, 180, 100)),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  ── TECHNICAL ──",
-            Style::default().fg(Color::Rgb(100, 100, 160)).add_modifier(Modifier::BOLD),
-        )),
-        detail_row("  Engine:  ", game.engine, Color::Rgb(200, 160, 100)),
-    ];
-    if game.runtime == "cargo" {
-        details.push(detail_row("  Bin:     ", game.bin, Color::Green));
-        details.push(detail_row("  Crate:   ", game.package, Color::Rgb(180, 140, 220)));
-    } else if game.runtime == "cmake" {
-        details.push(detail_row("  Lang:    ", "C", Color::Green));
-        details.push(detail_row("  Repo:    ", game.package, Color::Rgb(180, 140, 220)));
-    } else {
-        details.push(detail_row("  Package: ", game.package, Color::Rgb(180, 140, 220)));
-    }
-    details.push(detail_row("  Source:  ", game.repo, Color::Rgb(100, 160, 220)));
-    details.push(Line::from(vec![
-        Span::styled("  Runtime: ", Style::default().fg(Color::Rgb(100, 100, 130))),
-        Span::styled(game.runtime, Style::default().fg(if runtime_available { Color::Green } else { Color::Red })),
-        Span::styled(
-            if runtime_available { " (found)" } else { " (missing!)" },
-            Style::default().fg(if runtime_available { Color::DarkGray } else { Color::Red }),
-        ),
-    ]));
-    let install_cmd = game.install_cmd.join(" ");
-    details.push(detail_row("  Install: ", &install_cmd, Color::Rgb(150, 150, 170)));
-    let size_str = if installed {
-        app.sizes[idx].map(format_size).unwrap_or_else(|| "unknown".to_string())
-    } else {
-        "-".to_string()
-    };
-    details.push(detail_row("  Size:    ", &size_str, Color::Rgb(150, 150, 170)));
-
-    if let Some(score) = best {
-        details.push(Line::from(vec![
-            Span::styled(
-                "  Best:  ",
-                Style::default().fg(Color::Rgb(100, 100, 130)),
-            ),
-            Span::styled(
-                format!("{}", score),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            ),
-        ]));
-    }
-
-    // High scores section
-    if let Some(entries) = app.scores.scores.get(game.name) {
-        if !entries.is_empty() {
-            details.push(Line::from(""));
-            details.push(Line::from(Span::styled(
-                "  ── HIGH SCORES ──",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            for (rank, entry) in entries.iter().enumerate().take(5) {
-                let medal = match rank {
-                    0 => "1st",
-                    1 => "2nd",
-                    2 => "3rd",
-                    _ => "   ",
-                };
-                let medal_color = match rank {
-                    0 => Color::Yellow,
-                    1 => Color::Rgb(180, 180, 200),
-                    2 => Color::Rgb(180, 120, 60),
-                    _ => Color::DarkGray,
-                };
-                details.push(Line::from(vec![
-                    Span::styled(
-                        format!("  {} ", medal),
-                        Style::default().fg(medal_color).add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        format!("{:<8}", entry.score),
-                        Style::default()
-                            .fg(if rank == 0 {
-                                Color::Yellow
-                            } else {
-                                Color::White
-                            })
-                            .add_modifier(if rank == 0 {
-                                Modifier::BOLD
-                            } else {
-                                Modifier::empty()
-                            }),
-                    ),
-                    Span::styled(
-                        &entry.date,
-                        Style::default().fg(Color::DarkGray),
-                    ),
-                ]));
-            }
-        }
-    }
-
-    // Score input prompt
-    if let Mode::ScoreInput { ref buffer } = app.mode {
-        details.push(Line::from(""));
-        details.push(Line::from(Span::styled(
-            "  ── ENTER SCORE ──",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )));
-        let cursor_char = if app.tick % 6 < 3 { "█" } else { " " };
-        details.push(Line::from(vec![
-            Span::styled("  > ", Style::default().fg(Color::Cyan)),
-            Span::styled(
-                buffer.as_str(),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(cursor_char, Style::default().fg(Color::Cyan)),
-        ]));
-        details.push(Line::from(Span::styled(
-            "  Enter to save, Esc to skip",
-            Style::default().fg(Color::DarkGray),
-        )));
-    }
-
-    if let Some((ref msg, is_ok)) = app.message {
-        details.push(Line::from(""));
-        let prefix = if is_ok { "  >> " } else { "  !! " };
-        details.push(Line::from(Span::styled(
-            format!("{}{}", prefix, msg),
-            Style::default()
-                .fg(if is_ok { Color::Green } else { Color::Red })
-                .add_modifier(Modifier::BOLD),
-        )));
-    }
-
-    let detail_block = panel_block("INFO", Color::Yellow);
-
-    let detail_widget = Paragraph::new(details)
-        .wrap(Wrap { trim: false })
-        .block(detail_block);
-    f.render_widget(detail_widget, cols[1]);
-
-    // --- Install Output Panel (third column) ---
-    if let Mode::Installing { ref lines, ref done, ref scroll } = app.mode {
-        let locked = lines.lock().unwrap();
-        let done_val = *done.lock().unwrap();
-        let is_done = done_val.is_some();
-        let ok = done_val.unwrap_or(false);
-
-        let mut output_lines: Vec<Line> = locked.iter().map(|l| {
-            let color = if l.starts_with("   Compiling") {
-                Color::Cyan
-            } else if l.starts_with(" Downloading") || l.starts_with("  Downloaded") {
-                Color::Rgb(120, 120, 180)
-            } else if l.starts_with("    Finished") || l.starts_with("  Installing") || l.starts_with("   Installed") {
-                Color::Green
-            } else if l.starts_with("error") || l.starts_with("Error") {
-                Color::Red
-            } else if l.starts_with("warning") {
-                Color::Yellow
-            } else if l.starts_with("$") {
-                Color::Rgb(180, 180, 220)
-            } else {
-                Color::Rgb(150, 150, 160)
-            };
-            Line::from(Span::styled(l.as_str(), Style::default().fg(color)))
-        }).collect();
-
-        if is_done {
-            output_lines.push(Line::from(""));
-            if ok {
-                output_lines.push(Line::from(Span::styled(
-                    "  Done! Press Esc to close.",
-                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-                )));
-            } else {
-                output_lines.push(Line::from(Span::styled(
-                    "  Failed! Press Esc to close.",
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                )));
-                output_lines.push(Line::from(Span::styled(
-                    "  Full log available with [l]",
-                    Style::default().fg(Color::DarkGray),
-                )));
-            }
-        } else {
-            let dots = ".".repeat((app.tick as usize % 4) + 1);
-            output_lines.push(Line::from(""));
-            output_lines.push(Line::from(Span::styled(
-                format!("  Working{}", dots),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            )));
-        }
-
-        let title = if is_done {
-            if ok { "COMPLETE" } else { "FAILED" }
-        } else {
-            "INSTALLING"
-        };
-        let title_color = if is_done {
-            if ok { Color::Green } else { Color::Red }
-        } else {
-            Color::Yellow
-        };
-        let install_block = panel_block(title, title_color);
-        let install_widget = Paragraph::new(output_lines)
-            .block(install_block)
-            .scroll((*scroll, 0));
-        f.render_widget(install_widget, cols[2]);
-    }
-
-    // === FOOTER ===
-    let footer_area = outer[2];
-    let footer_width = footer_area.width.saturating_sub(2) as usize; // inside borders
-
-    let mut left_spans: Vec<Span> = Vec::new();
-    if let Mode::Installing { ref done, .. } = app.mode {
-        let is_done = done.lock().unwrap().is_some();
-        if is_done {
-            left_spans.push(Span::styled(" Esc", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)));
-            left_spans.push(Span::styled(" close", Style::default().fg(Color::DarkGray)));
-        } else {
-            left_spans.push(Span::styled(" j/k", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
-            left_spans.push(Span::styled(" scroll ", Style::default().fg(Color::DarkGray)));
-            left_spans.push(Span::styled("| ", Style::default().fg(Color::Rgb(50, 50, 80))));
-            left_spans.push(Span::styled("cargo running...", Style::default().fg(Color::Yellow)));
-        }
-    } else if matches!(app.mode, Mode::ScoreInput { .. }) {
-        left_spans.push(Span::styled(" Score: ", Style::default().fg(Color::Cyan)));
-        left_spans.push(Span::styled("Enter", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
-        left_spans.push(Span::styled(" save ", Style::default().fg(Color::DarkGray)));
-        left_spans.push(Span::styled("Esc", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)));
-        left_spans.push(Span::styled(" skip", Style::default().fg(Color::DarkGray)));
-    } else {
-        let mut keys: Vec<(&str, &str, Color)> = vec![
-            ("j/k", "nav", Color::Cyan),
-            ("Enter", "play", Color::Green),
-            ("i", "install", Color::Yellow),
-            ("d", "remove", Color::Red),
-            ("r", "refresh", Color::Magenta),
-        ];
-        if app.last_log.is_some() {
-            keys.push(("l", "log", Color::Rgb(180, 160, 100)));
-        }
-        keys.push(("q", "quit", Color::Rgb(180, 80, 80)));
-        let keys = &keys;
-        left_spans.push(Span::styled(" ", Style::default()));
-        for (i, (key, label, color)) in keys.iter().enumerate() {
-            left_spans.push(Span::styled(*key, Style::default().fg(*color).add_modifier(Modifier::BOLD)));
-            left_spans.push(Span::styled(format!(" {}", label), Style::default().fg(Color::DarkGray)));
-            if i < keys.len() - 1 {
-                left_spans.push(Span::styled(" | ", Style::default().fg(Color::Rgb(50, 50, 80))));
-            }
-        }
-    }
-
-    // Right side: toolchains + game count
-    let installed_count = app.installed.iter().filter(|&&x| x).count();
-    let right_parts: &[(&str, bool)] = &[
-        ("cargo", app.toolchains.cargo),
-        ("python", app.toolchains.python),
-        ("cmake", app.toolchains.cmake),
-    ];
-    let mut right_spans: Vec<Span> = Vec::new();
-    for (name, found) in right_parts {
-        let (fg, bg, label) = if *found {
-            (Color::Black, Color::Green, format!(" {} ", name))
-        } else {
-            (Color::DarkGray, Color::Rgb(40, 40, 40), format!(" {} ", name))
-        };
-        right_spans.push(Span::styled(label, Style::default().fg(fg).bg(bg)));
-        right_spans.push(Span::styled(" ", Style::default()));
-    }
-    right_spans.push(Span::styled(
-        format!(" {}/{} ", installed_count, GAMES.len()),
-        Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
-    ));
-
-    // Calculate padding to right-align the right side
-    let left_len: usize = left_spans.iter().map(|s| s.width()).sum();
-    let right_len: usize = right_spans.iter().map(|s| s.width()).sum();
-    let pad = footer_width.saturating_sub(left_len + right_len);
-
-    let mut footer_spans = left_spans;
-    footer_spans.push(Span::styled(" ".repeat(pad), Style::default()));
-    footer_spans.extend(right_spans);
-
-    let footer_block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
-        .border_style(Style::default().fg(Color::Rgb(60, 60, 100)));
-    let footer = Paragraph::new(Line::from(footer_spans)).block(footer_block);
-    f.render_widget(footer, footer_area);
 }
